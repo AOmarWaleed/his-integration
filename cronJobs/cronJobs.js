@@ -19,6 +19,12 @@ const SAUDI_TZ = TIMEZONES?.SAUDI || "Asia/Riyadh";
 const EXCLUDED_JOB_NAMES = new Set(["Import Prescription"]);
 
 /**
+ * Maximum wall-clock time a single job execution is allowed to run before
+ * being aborted so a hung socket / DB call can never leave `isRunning = true` forever.
+ */
+const MAX_JOB_EXECUTION_MS = 20 * 60 * 1000; // 20 minutes
+
+/**
  * All currently registered cron jobs.
  * Key: `${jobAction}|${facilityId}`
  * Value: {
@@ -256,13 +262,17 @@ async function runJob(key) {
   }
 
   entry.isRunning = true;
+  entry.abortController = new AbortController();
+  const runAbortController = entry.abortController;
   const startTime = Date.now();
   const scheduledAt = entry.nextRunDate;
 
   let logId = null;
   let success = false;
   let failureMessage = null;
-  let summary = {} ;
+  let summary = {};
+  let executionTimeoutId = null;
+
   try {
     try {
       logId = await appJobModel.startJobLog(
@@ -281,13 +291,32 @@ async function runJob(key) {
       `${COLOR.green}${COLOR.bold}[cronJobs] START ${key} | jobId=${entry.jobId} | facilityId=${entry.facilityId} | repeat=${entry.repeatMinutes}m | scheduled_at=${formatForLog(scheduledAt)} | started_at=${formatForLog(new Date())}${COLOR.reset}`,
     );
 
-     summary = await handler(
-      entry.repeatMinutes,
-      entry.facilityId,
-      entry.abortController.signal,
-    );
+    summary = await Promise.race([
+      handler(
+        entry.repeatMinutes,
+        entry.facilityId,
+        runAbortController.signal,
+      ),
+      new Promise((_, reject) => {
+        executionTimeoutId = setTimeout(() => {
+          try {
+            runAbortController.abort();
+          } catch (_) {
+            // ignore abort error
+          }
+          reject(
+            new Error(
+              `Job execution timed out after ${Math.round(MAX_JOB_EXECUTION_MS / 60000)} minutes`,
+            ),
+          );
+        }, MAX_JOB_EXECUTION_MS);
+        if (typeof executionTimeoutId.unref === "function") {
+          executionTimeoutId.unref();
+        }
+      }),
+    ]);
 
-    clientLogger.info(`[CRON JOB SUMMARY]` , JSON.stringify(summary))
+    clientLogger.info(`[CRON JOB SUMMARY]`, JSON.stringify(summary));
 
     success = true;
   } catch (error) {
@@ -296,6 +325,10 @@ async function runJob(key) {
       `${COLOR.red}${COLOR.bold}[cronJobs] FAIL ${key} | jobId=${entry.jobId} | facilityId=${entry.facilityId} | error=${error.message}${COLOR.reset}`,
     );
   } finally {
+    if (executionTimeoutId) {
+      clearTimeout(executionTimeoutId);
+      executionTimeoutId = null;
+    }
     const runSeconds = (Date.now() - startTime) / 1000;
     const runMs = Date.now() - startTime;
     const finishedAt = new Date();

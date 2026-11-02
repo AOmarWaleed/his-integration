@@ -156,11 +156,20 @@ export const searchPractitioners = async (params) => {
     // Retry once if token is invalid
     if (
       error.response?.status === 403 &&
-      error.response?.data?.fault?.faultstring?.includes("Invalid Access Token")
+      error.response?.data?.fault?.faultstring?.includes("Invalid Access Token") &&
+      !params._tokenRetried
     ) {
       clientLogger.info("Token invalid, clearing cache and retrying...");
       clearToken("practitioner", facilityId);
-      return searchPractitioners(params);
+      if (dbConnect) {
+        try {
+          await dbConnect.close();
+          dbConnect = null;
+        } catch (closeErr) {
+          clientLogger.warn(`Error closing Oracle connection before retry: ${closeErr.message}`);
+        }
+      }
+      return searchPractitioners({ ...params, _tokenRetried: true });
     }
 
     throw error;

@@ -165,11 +165,17 @@ export const searchPatients = async ({closeConnection = true, ...params}) => {
     // Retry once if token is invalid
     if (
       error.response?.status === 403 &&
-      error.response?.data?.fault?.faultstring?.includes("Invalid Access Token")
+      error.response?.data?.fault?.faultstring?.includes("Invalid Access Token") &&
+      !params._tokenRetried
     ) {
       REGISTRY_LOGGER.debug("Token invalid, clearing cache and retrying...");
       clearToken("patient", facilityId || null);
-      return searchPatients(params);
+      return searchPatients({
+        ...params,
+        closeConnection: false,
+        oracleConnection: dbConnect,
+        _tokenRetried: true,
+      });
     }
 
     if(!closeConnection) {
