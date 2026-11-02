@@ -1,0 +1,476 @@
+		<!--
+					=================================================
+					Section: Preoperative Diagnosis Section
+
+						The Preoperative Diagnosis section records the surgical diagnosis or diagnoses assigned to the patient before a surgical procedure and is the reason for the surgery.
+						The preoperative diagnosis is, in the opinion of the surgeon, the diagnosis that will be confirmed during surgery.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.28"/>
+				<templateId root="2.16.840.1.113883.10.20.22.2.34"/>
+				<code code="10219-4"
+				      displayName="SURGICAL .OPERATION NOTE PREOPERATIVE DIAGNOSIS"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Preoperative Diagnosis</title>
+				<text>
+					<table>
+						<thead>
+							<tr>
+								<th>Diagnosis</th>
+								<th>Date from</th>
+								<th>Date to</th>
+								<th>Status</th>
+							</tr>
+						</thead>
+						<tbody>
+							{{DATA.PREOPERATIVE_DIAGNOSIS_ROWS}}
+						</tbody>
+					</table>
+				</text>
+				{{DATA.PREOPERATIVE_DIAGNOSIS_ENTRIES}}
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Postprocedure Diagnosis Section
+
+						The Postprocedure Diagnosis records the diagnosis or diagnoses confirmed during the procedure.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.29"/>
+				<templateId root="2.16.840.1.113883.10.20.22.2.36"/>
+				<code code="59769-0"
+				      displayName="POSTPROCEDURE DIAGNOSIS"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Postprocedure Diagnosis</title>
+				<text>
+					<table>
+						<thead>
+							<tr>
+								<th>Diagnosis</th>
+								<th>Date from</th>
+								<th>Date to</th>
+								<th>Status</th>
+							</tr>
+						</thead>
+						<tbody>
+							{{DATA.POSTPROCEDURE_DIAGNOSIS_ROWS}}
+						</tbody>
+					</table>
+				</text>
+				{{DATA.POSTPROCEDURE_DIAGNOSIS_ENTRIES}}
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Operative Note Surgical Procedure Section
+
+						The Procedures performed for this encounter include interventional, surgical, diagnostic, or therapeutic procedures or treatments.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.33"/>
+				<templateId root="2.16.840.1.113883.10.20.7.14"/>
+				<code code="10223-6"
+				      displayName="SURGICAL OPERATION NOTE SURGICAL PROCEDURE"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Operative Note Surgical Procedure</title>
+				<text>
+						{{DATA.OPERATIVE_NOTE_SURGICAL_PROCEDURE}}
+					</text>
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Procedure Findings Section
+
+						The Findings Section contains a narrative description of any observation made during the time of the procedure or treatment.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.39"/>
+				<templateId root="2.16.840.1.113883.10.20.22.2.28"/>
+				<code code="59776-5"
+				      displayName="PROCEDURE FINDINGS"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Procedure Findings</title>
+				<text>
+						{{DATA.PROCEDURE_FINDINGS}}
+					</text>
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Surgical Drains Section
+
+						The Surgical Drains Section describes any drains implanted during a procedure.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.12"/>
+				<templateId root="2.16.840.1.113883.10.20.7.13"/>
+				<code code="11537-8"
+				      displayName="SURGICAL DRAINS"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Surgical Drains</title>
+				<text>
+						{{DATA.SURGICAL_DRAINS}}
+					</text>
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Procedure Specimens Taken Section
+
+						Specimens describe any samples or pathology obtained for Laboratory testing during the surgery.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.36"/>
+				<templateId root="2.16.840.1.113883.10.20.22.2.31"/>
+				<code code="59773-2"
+				      displayName="PROCEDURE SPECIMENS TAKEN"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Procedure Specimens Taken</title>
+				<text>
+						
+						{{DATA.PROCEDURE_SPECIMENS_TAKEN}}
+					</text>
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Complications Section
+
+						The Complications Section records information on any issues that arose during the procedure.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.35"/>
+				<templateId root="2.16.840.1.113883.10.20.22.2.37"/>
+				<code code="55109-3"
+				      displayName="COMPLICATIONS"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Complications</title>
+				<text>
+						{{DATA.COMPLICATIONS}}
+					</text>
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Anesthesia Section
+
+						The Anesthesia Section records the type of anesthesia used (e.g., Local or general).
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.34"/>
+				<templateId root="2.16.840.1.113883.10.20.22.2.25"/>
+				<code code="59774-0"
+				      displayName="PROCEDURE ANESTHESIA"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Anesthesia</title>
+				<text>
+						{{DATA.ANESTHESIA}}
+					</text>
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Estimated Blood Loss Section
+
+						The Estimated Blood Loss describes the amount of blood loss during the procedure.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.37"/>
+				<templateId root="2.16.840.1.113883.10.20.18.2.9"/>
+				<code code="59770-8"
+				      displayName="PROCEDURE ESTIMATED BLOOD LOSS"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Estimated Blood Loss</title>
+				<text>
+						{{DATA.ESTIMATED_BLOOD_LOSS}}
+					</text>
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Operative Note Fluids Section
+
+						The Fluids records information about the in-take or out-take of fluids during the procedure.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.38"/>
+				<templateId root="2.16.840.1.113883.10.20.7.12"/>
+				<code code="10216-0"
+				      displayName="SURGICAL OPERATION NOTE FLUIDS"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Operative Note Fluids</title>
+				<text>
+						{{DATA.OPERATIVE_NOTE_FLUIDS}}
+					</text>
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Procedure Description Section
+
+						The Procedure Description section records the particulars of the procedure and may include procedure site preparation, surgical site preparation and other pertinent details.
+						Local practices often identify the level and type of detail required based on the procedure or specialty.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.40"/>
+				<templateId root="2.16.840.1.113883.10.20.22.2.27"/>
+				<code code="29554-3"
+				      displayName="PROCEDURE"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Procedure Description</title>
+				<text>
+						{{DATA.PROCEDURE_DESCRIPTION}}
+					</text>
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Active Problems Section
+
+						Problem List Section contains the problems currently being monitored for the patient, including currently active and recently resolved problems.
+
+						This example shows "no problems", reflecting the situation, that the patient shows no other problems as the one which led to this hospital stay.
+						See the Admitting Diagnosis section for the Diagnosis, which led to this hospital stay.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.3"/>
+				<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.6"/>
+				<templateId root="2.16.840.1.113883.10.20.1.11"/>
+				<code code="11450-4"
+				      displayName="PROBLEM LIST"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Active problems</title>
+				<text>
+					<table>
+						<thead>
+							<tr>
+								<th>Diagnosis</th>
+								<th>Date from</th>
+								<th>Date to</th>
+								<th>Status</th>
+							</tr>
+						</thead>
+						<tbody>
+							{{DATA.ACTIVE_PROBLEMS_ROWS}}
+						</tbody>
+					</table>
+				</text>
+				{{DATA.ACTIVE_PROBLEMS_ENTRIES}}
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Visible Implanted Medical Devices Section
+
+						The Visible Implanted Medical Devices Section includes a description of the medical devices apparent on physical exam that have been inserted into the patient, whether internal or partially external.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.11"/>
+				<templateId root="1.3.6.1.4.1.19376.1.5.3.1.1.9.48"/>
+				<code code="57080-4"
+				      displayName="IMPLANTED MEDICAL DEVICE"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Visible Implanted Medical Devices</title>
+				<text>
+						{{DATA.VISIBLE_IMPLANTED_MEDICAL_DEVICES}}
+					</text>
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: History of Blood Transfusion Section
+
+						The History of Blood Transfusion Section shall contain a narrative description of the blood products the patient has received in the past, including any reactions to blood.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.42"/>
+				<templateId root="1.3.6.1.4.1.19376.1.5.3.1.1.9.12"/>
+				<code code="56836-0"
+				      displayName="HISTORY OF BLOOD TRANSFUSION"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>History of Blood Transfusion</title>
+				<text>
+						{{DATA.HISTORY_OF_BLOOD_TRANSFUSION}}
+					</text>
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Acuity Assessment Section
+
+						The Acuity Assessment is used by a Surgeon to assess the severity of a patient’s condition.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.31"/>
+				<templateId root="1.3.6.1.4.1.19376.1.5.3.1.1.13.2.2"/>
+				<code code="11283-9"
+				      displayName="ACUITY ASSESSMENT"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Acuity Assessment</title>
+				<text>
+						{{DATA.ACUITY_ASSESSMENT}}
+					</text>
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Care Plan Section
+
+						The Care Plan Section describes any pending orders, interventions, encounters, services and procedures for the patient after the completion of the Outpatient encounter.
+						The Plan of Care may also include other information such as patient education, nutritional diet, follow-up orders, etc.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.13"/>
+				<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.31"/>
+				<templateId root="2.16.840.1.113883.10.20.1.10"/>
+				<code code="61145-9"
+				      displayName="TREATMENT PLAN"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Care Plan</title>
+						<!-- For the Operative Notes, it's mainly Post-Operative Instructions and Post-Operative Orders -->
+				<text>
+						{{DATA.CARE_PLAN}}
+					</text>
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Postoperative Diagnosis Section
+
+						Observations of problems or other clinical statements captured at the completion of the procedure or treatment, which represent the ongoing process tracked over time.
+						Often it is the same as the preoperative diagnosis.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.30"/>
+				<templateId root="2.16.840.1.113883.10.20.22.2.35"/>
+				<code code="10218-6"
+				      displayName="SURGICAL OPERATION NOTE POSTOPERATIVE DIAGNOSIS"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Postoperative Diagnosis</title>
+				<text>
+					<table>
+						<thead>
+							<tr>
+								<th>Diagnosis</th>
+								<th>Date from</th>
+								<th>Date to</th>
+								<th>Status</th>
+							</tr>
+						</thead>
+						<tbody>
+							{{DATA.POSTOPERATIVE_DIAGNOSIS_ROWS}}
+						</tbody>
+					</table>
+				</text>
+				{{DATA.POSTOPERATIVE_DIAGNOSIS_ENTRIES}}
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Planned Procedure Section
+
+						The Planned Procedures for this encounter include interventional, surgical, diagnostic, or therapeutic procedures or treatments, including indicator on the priority of the
+						Procedure. (i.e., Emergency (immediate), Urgent (short term) or Elective (scheduled based on availability)).
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.32"/>
+				<templateId root="2.16.840.1.113883.10.20.22.2.30"/>
+				<code code="59772-4"
+				      displayName="PLANNED PROCEDURES"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Planned Procedure</title>
+				<text>
+					<table>
+						<thead>
+							<tr>
+								<th>Procedure</th>
+								<th>Date of procedure</th>
+								<th>Priority</th>
+							</tr>
+						</thead>
+						<tbody>
+							{{DATA.PLANNED_PROCEDURES_ROWS}}
+						</tbody>
+					</table>
+				</text>
+				{{DATA.PLANNED_PROCEDURES_ENTRIES}}
+			</section>
+		</component>
+		<!--
+					=================================================
+					Section: Procedure Disposition Section
+
+						The Procedure Disposition section records the status and condition of the patient at the completion of the procedure or surgery.
+						It often also states where the patent was transferred to for the next level of care.
+					=================================================
+			-->
+		<component>
+			<section>
+				<templateId root="2.16.840.1.113883.3.3731.1.210.100.41"/>
+				<templateId root="2.16.840.1.113883.10.20.18.2.12"/>
+				<code code="59775-7"
+				      displayName="PROCEDURE DISPOSITION"
+				      codeSystem="2.16.840.1.113883.6.1"
+				      codeSystemName="LOINC"/>
+				<title>Procedure Disposition</title>
+				<text>
+						{{DATA.PROCEDURE_DISPOSITION}}
+					</text>
+			</section>
+		</component>

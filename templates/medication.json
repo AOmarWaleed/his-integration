@@ -1,0 +1,492 @@
+{
+  "resourceType": "Bundle",
+  "id": "{{DATA.BUNDLE_ID}}",
+  "meta": {
+    "profile": [
+      "http://nphies.sa/fhir/ksa/nphies-cs/StructureDefinition/bundlePrescription|1.0"
+    ]
+  },
+  "type": "message",
+  "timestamp": "{{DATA.TIMESTAMP}}",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "MessageHeader",
+        "id": "{{DATA.MESSAGE_HEADER_ID}}",
+        "meta": {
+          "profile": [
+            "http://nphies.sa/fhir/ksa/nphies-cs/StructureDefinition/messageheader|1.0"
+          ]
+        },
+        "eventCoding": {
+          "system": "http://nphies.sa/fhir/ksa/nphies-cs/terminology/CodeSystem/EventCoding",
+          "code": "submit"
+        },
+        "sender": {
+          "identifier": [
+            {
+              "system": "2.16.840.1.113883.3.3731.1.2.2",
+              "value": "{{DATA.NPHIES_CS_ORG_ID}}"
+            }
+          ]
+        },
+        "author": {
+          "identifier": [
+            {
+              "system": "2.16.840.1.113883.3.3731.1.2.1",
+              "value": "{{DATA.PRACTITIONER.IDENTIFIER_NO}}"
+            }
+          ]
+        },
+        "focus": {
+          "identifier": [
+            {
+              "system": "{{DATA.NPHIES_CS_OID}}",
+              "value": "{{DATA.MASTER_NO}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "{{DATA.PATIENT.PATIENT_ID}}",
+        "meta": {
+          "profile": [
+            "http://nphies.sa/fhir/ksa/nphies-cs/StructureDefinition/patient|1.0"
+          ]
+        },
+        "identifier": [
+          {
+            "system": "2.16.840.1.113883.3.3731.1.1.100.1",
+            "value": "{{DATA.PATIENT.HEALTH_ID}}"
+          }
+        ],
+        "name": [
+          {
+            "text": "{{DATA.PATIENT.FIRST_NAME}}",
+            "text2": "{{DATA.PATIENT.SECOND_NAME}}",
+            "family": "{{DATA.PATIENT.LAST_NAME}}",
+            "given": [
+              "{{DATA.PATIENT.FIRST_NAME}}",
+              "{{DATA.PATIENT.SECOND_NAME}}"
+            ]
+          }
+        ],
+        "gender": "{{DATA.PATIENT.GENDER_CODE_FHIR_MAP}}",
+        "birthDate": "{{DATA.PATIENT.DATE_OF_BIRTH_FORMATTED}}",
+        "address": [
+          {
+            "text": "{{DATA.PATIENT.ADDRESS}}",
+            "line": "{{DATA.PATIENT.ADDRESS_LINE}}",
+            "city": "{{DATA.PATIENT.CITY}}",
+            "postalCode": "{{DATA.PATIENT.POSTAL_CODE}}",
+            "country": "{{DATA.PATIENT.COUNTRY}}"
+          }
+        ],
+        "telecom": [
+          {
+            "system": "phone",
+            "value": "{{DATA.PATIENT.MOBILE_NO}}",
+            "rank": 1
+          }
+        ],
+        "maritalStatus": {
+          "coding": [
+            {
+              "system": "2.16.840.1.113883.5.2",
+              "code": "{{DATA.PATIENT.MARITAL_STATUS_CODE_MAP}}",
+              "display": "{{DATA.PATIENT.MARITAL_STATUS_MAP}}"
+            }
+          ]
+        },
+        "extension": [
+          {
+            "valueCodeableConcept": {
+              "coding": [
+                {
+                  "system": "2.16.840.1.113883.3.3731.1.202.10",
+                  "code": "{{DATA.PATIENT.RELIGION_CODE_MAP}}",
+                  "display": "{{DATA.PATIENT.RELIGION_MAP}}"
+                }
+              ]
+            },
+            "url": "https://hl7.org/fhir/extensions/StructureDefinition-patient-religion"
+          },
+          {
+            "extension": [
+              {
+                "url": "code",
+                "valueCodeableConcept": {
+                  "coding": [
+                    {
+                      "system": "1.0.3166.1",
+                      "code": "{{DATA.PATIENT.NATIONALITY_CODE_MAP}}"
+                    }
+                  ]
+                }
+              }
+            ],
+            "url": "http://hl7.org/fhir/StructureDefinition/patient-citizenship"
+          }
+        ]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Practitioner",
+        "id": "{{DATA.PRACTITIONER.PRACTITIONER_ID}}",
+        "meta": {
+          "profile": [
+            "http://nphies.sa/fhir/ksa/nphies-cs/StructureDefinition/practitioner|1.0"
+          ]
+        },
+        "identifier": [
+          {
+            "system": "2.16.840.1.113883.3.3731.1.2.1",
+            "value": "{{DATA.PRACTITIONER.IDENTIFIER_NO}}"
+          }
+        ],
+        "name": {
+          "given": "{{DATA.PRACTITIONER.FIRST_NAME}}",
+          "family": "{{DATA.PRACTITIONER.LAST_NAME}}"
+        },
+        "address": [
+          {
+            "text": "{{DATA.PRACTITIONER.ADDRESS}}",
+            "line": "{{DATA.PRACTITIONER.ADDRESS_LINE}}",
+            "city": "{{DATA.PRACTITIONER.CITY}}",
+            "postalCode": "{{DATA.PRACTITIONER.POSTAL_CODE}}",
+            "country": "{{DATA.PRACTITIONER.COUNTRY}}"
+          }
+        ],
+        "telecom": [
+          {
+            "system": "phone",
+            "value": "{{DATA.PRACTITIONER.MOBILE_NO}}",
+            "rank": 1
+          },
+          {
+            "system": "email",
+            "value": "{{DATA.PRACTITIONER.EMAIL_ADDRESS}}"
+          }
+        ]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "PractitionerRole",
+        "id": "{{DATA.PRACTITIONER.PRACTITIONER_ROLE_ID}}",
+        "meta": {
+          "profile": [
+            "http://nphies.sa/fhir/ksa/nphies-cs/StructureDefinition/practitionerrole|1.0"
+          ]
+        },
+        "practitioner": {
+          "reference": "Practitioner/{{DATA.PRACTITIONER.PRACTITIONER_ID}}",
+          "identifier": [
+            {
+              "system": "2.16.840.1.113883.3.3731.1.2.1",
+              "value": "{{DATA.PRACTITIONER.IDENTIFIER_NO}}"
+            }
+          ]
+        },
+        "organization": {
+          "reference": "Organization/{{DATA.ORGANIZATION_ID}}",
+          "identifier": [
+            {
+              "system": "2.16.840.1.113883.3.3731.1.2.2",
+              "value": "{{DATA.NPHIES_CS_ORG_ID}}"
+            }
+          ]
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "2.16.840.1.113883.3.3731.1.202.1",
+              "code": "{{DATA.PRACTITIONER.CODE}}",
+              "display": "{{DATA.PRACTITIONER.DISPLAY}}"
+            }
+          ]
+        },
+        "specialty": {
+          "coding": [
+            {
+              "system": "2.16.840.1.113883.3.3731.1.202.5",
+              "code": "{{DATA.PRACTITIONER.SPECIALTY_CODE}}",
+              "display": "{{DATA.PRACTITIONER.SPECIALTY_DISPLAY}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Organization",
+        "id": "{{DATA.ORGANIZATION_ID}}",
+        "meta": {
+          "profile": [
+            "http://nphies.sa/fhir/ksa/nphies-cs/StructureDefinition/organization|1.0"
+          ]
+        },
+        "identifier": [
+          {
+            "system": "2.16.840.1.113883.3.3731.1.2.2",
+            "value": "{{DATA.NPHIES_CS_ORG_ID}}"
+          }
+        ],
+        "name": "{{DATA.ORGANIZATION_NAME}}"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "{{DATA.ENCOUNTER.ENCOUNTER_ID}}",
+        "meta": {
+          "profile": [
+            "http://nphies.sa/fhir/ksa/nphies-cs/StructureDefinition/encounter|1.0"
+          ]
+        },
+        "identifier": [
+          {
+            "system": "{{DATA.NPHIES_CS_OID}}",
+            "value": "{{DATA.ENCOUNTER.ENCOUNTER_IDENTIFIER}}"
+          }
+        ],
+        "class": {
+          "coding": [
+            {
+              "system": "urn:oid:2.16.840.1.113883.18.5",
+              "code": "{{DATA.ENCOUNTER.ENCOUNTER_CLASS_CODE}}",
+              "display": "{{DATA.ENCOUNTER.ENCOUNTER_CLASS_DISPLAY}}"
+            }
+          ]
+        },
+        "period": {
+          "start": "{{DATA.ENCOUNTER.PERIOD_START}}"
+        },
+        "serviceProvider": {
+          "display": "{{DATA.ORGANIZATION_NAME}}"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "{{DATA.MEDICATION_REQUEST.MEDICATION_REQUEST_ID}}",
+        "meta": {
+          "profile": [
+            "http://nphies.sa/fhir/ksa/nphies-cs/StructureDefinition/medicationrequest|1.0"
+          ]
+        },
+        "contained": [
+          {
+            "resourceType": "Medication",
+            "id": "medicationprescribed",
+            "meta": {
+              "profile": [
+                "http://nphies.sa/fhir/ksa/nphies-cs/StructureDefinition/medicationprescribed|1.0"
+              ]
+            },
+            "code": {
+              "coding": [
+                {
+                  "system": "2.16.840.1.113883.3.3731.1.205.1",
+                  "code": "{{DATA.MEDICATION_REQUEST.CONTAINED.MED_MRID_CODE}}",
+                  "display": "{{DATA.MEDICATION_REQUEST.CONTAINED.DESCRIPTION}}"
+                }
+              ],
+              "text": "{{DATA.MEDICATION_REQUEST.CONTAINED.DESCRIPTION}}"
+            },
+            "form": {
+              "coding": [
+                {
+                  "system": "2.16.840.1.113883.3.3731.1.205.8",
+                  "code": "{{DATA.MEDICATION_REQUEST.CONTAINED.MEDICATION_DOSE_FORM_CODE}}",
+                  "display": "{{DATA.MEDICATION_REQUEST.CONTAINED.MEDICATION_DOSE_FORM_DISPLAY}}"
+                }
+              ]
+            }
+          }
+        ],
+        "identifier": [
+          {
+            "system": "{{DATA.NPHIES_CS_OID}}",
+            "value": "{{DATA.MEDICATION_REQUEST.ORDER_LINE}}"
+          }
+        ],
+        "status": "{{DATA.MEDICATION_REQUEST.PRESCRIPTION_STATUS}}",
+        "intent": "order",
+        "groupIdentifier": [
+          {
+            "system": "{{DATA.NPHIES_CS_OID}}.100.100",
+            "value": "{{DATA.MEDICATION_REQUEST.GROUP_IDENTIFIER}}"
+          }
+        ],
+        "authoredOn": "{{DATA.TIMESTAMP}}",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "2.16.840.1.113883.3.3731.1.205.14",
+                "code": "{{DATA.MEDICATION_REQUEST.CATEGORY_CODE}}",
+                "display": "{{DATA.MEDICATION_REQUEST.CATEGORY_DISPLAY}}"
+              }
+            ]
+          },
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.4.642.3.1322",
+                "code": "{{DATA.MEDICATION_REQUEST.ENCOUNTER_TYPE_CODE}}",
+                "display": "{{DATA.MEDICATION_REQUEST.ENCOUNTER_TYPE_DISPLAY}}"
+              }
+            ]
+          }
+        ],
+        "text": {
+          "status": "generated",
+          "div": "<div xmlns=\"http://www.w3.org/1999/xhtml\">{{DATA.MEDICATION_REQUEST.TEXT_XHTML_NARRATIVE}}</div>"
+        },
+        "subject": {
+          "reference": "Patient/{{DATA.PATIENT.PATIENT_ID}}",
+          "identifier": [
+            {
+              "system": "2.16.840.1.113883.3.3731.1.1.100.1",
+              "value": "{{DATA.PATIENT.HEALTH_ID}}"
+            }
+          ]
+        },
+        "requester": {
+          "reference": "PractitionerRole/{{DATA.PRACTITIONER.PRACTITIONER_ROLE_ID}}"
+        },
+        "encounter": {
+          "reference": "Encounter/{{DATA.ENCOUNTER.ENCOUNTER_ID}}",
+          "identifier": [
+            {
+              "system": "{{DATA.NPHIES_CS_OID}}",
+              "value": "{{DATA.ENCOUNTER.ENCOUNTER_IDENTIFIER}}"
+            }
+          ]
+        },
+        "medicationReference": {
+          "reference": "#medicationprescribed"
+        },
+        "dosageInstruction": [
+          {
+            "text": "{{DATA.MEDICATION_REQUEST.DOSAGE_DESC}}",
+            "patientInstruction": "{{DATA.MEDICATION_REQUEST.DOSAGE.PATIENT_INSTRUCTION}}",
+            "timing": {
+              "repeat": {
+                "boundsPeriod": {
+                  "start": "{{DATA.MEDICATION_REQUEST.DOSAGE.BOUNDS_PERIOD_START}}",
+                  "end": "{{DATA.MEDICATION_REQUEST.DOSAGE.BOUNDS_PERIOD_END}}"
+                }
+              }
+            },
+            "route": {
+              "coding": [
+                {
+                  "system": "2.16.840.1.113883.6.96",
+                  "code": "{{DATA.MEDICATION_REQUEST.DOSAGE.ROUTE_CODE}}",
+                  "display": "{{DATA.MEDICATION_REQUEST.DOSAGE.ROUTE_DISPLAY}}"
+                }
+              ]
+            },
+            "site": {
+              "coding": [
+                {
+                  "system": "2.16.840.1.113883.6.96",
+                  "code": "{{DATA.MEDICATION_REQUEST.DOSAGE.SITE_CODE}}",
+                  "display": "{{DATA.MEDICATION_REQUEST.DOSAGE.SITE_DISPLAY}}"
+                }
+              ]
+            },
+            
+            "asNeededBoolean": "{{DATA.MEDICATION_REQUEST.DOSAGE.AS_NEEDED_BOOLEAN}}"
+          },
+          {
+            "timing": {
+              "coding": [
+                {
+                  "system": "2.16.840.1.113883.6.96",
+                  "code": "{{DATA.MEDICATION_REQUEST.DOSAGE.TIMING_CODE}}",
+                  "display": "{{DATA.MEDICATION_REQUEST.DOSAGE.TIMING_DISPLAY}}"
+                }
+              ],
+              "repeat": {
+                "frequency": "{{DATA.MEDICATION_REQUEST.DOSAGE.TIMES}}",
+                "period": "{{DATA.MEDICATION_REQUEST.DOSAGE.NO_OF_PERIODS}}",
+                "periodUnit": "{{DATA.MEDICATION_REQUEST.DISPENSE_REQUEST.EXPECTED_SUPPLY_DURATION_CODE}}"
+              }
+            },
+            "doseAndRate": [
+              {
+                "doseQuantity": {
+                  "value": "{{DATA.MEDICATION_REQUEST.DISPENSE_REQUEST.QUANTITY}}",
+                  "unit": "{{DATA.MEDICATION_REQUEST.DISPENSE_REQUEST.QUANTITY_UNIT}}"
+                }
+              }
+            ]
+          }
+        ],
+        "note": [
+          {
+            "text": "{{DATA.MEDICATION_REQUEST.NOTE}}"
+          }
+        ],
+        "dispenseRequest": {
+          "validityPeriod": {
+            "start": "{{DATA.MEDICATION_REQUEST.DISPENSE_REQUEST.VALIDITY_PERIOD_START}}",
+            "end": "{{DATA.MEDICATION_REQUEST.DISPENSE_REQUEST.VALIDITY_PERIOD_END}}"
+          },
+          "numberOfRepeatsAllowed": "{{DATA.MEDICATION_REQUEST.DISPENSE_REQUEST.NUMBER_OF_REPEATS_ALLOWED}}",
+          "quantity": {
+            "value": "{{DATA.MEDICATION_REQUEST.DISPENSE_REQUEST.QUANTITY_TOTAL}}",
+            "unit": "{{DATA.MEDICATION_REQUEST.DISPENSE_REQUEST.QUANTITY_UNIT}}"
+          },
+          "expectedSupplyDuration": {
+            "value": "{{DATA.MEDICATION_REQUEST.DISPENSE_REQUEST.EXPECTED_SUPPLY_DURATION:number}}",
+            "unit": "{{DATA.MEDICATION_REQUEST.DISPENSE_REQUEST.EXPECTED_SUPPLY_DURATION_UNIT}}",
+            "code": "{{DATA.MEDICATION_REQUEST.DISPENSE_REQUEST.EXPECTED_SUPPLY_DURATION_CODE}}"
+          }
+        },
+        "reasonCode": {
+          "coding": [
+            {
+              "system": "urn:oid:2.16.840.1.113883.6.135",
+              "code": "{{DATA.MEDICATION_REQUEST.REASON_CODE}}",
+              "display": "{{DATA.MEDICATION_REQUEST.REASON_DISPLAY}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "{{DATA.OBSERVATION_ID}}",
+        "meta": {
+          "profile": [
+            "http://nphies.sa/fhir/ksa/nphies-cs/StructureDefinition/additionalorderinformation|1.0"
+          ]
+        },
+        "status": "registered",
+        "code": {
+          "coding": [
+            {
+              "system": "urn:oid:2.16.840.1.113883.6.96",
+              "code": "{{DATA.OBSERVATION_CODE}}",
+              "display": "{{DATA.OBSERVATION_DISPLAY}}"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": "{{DATA.CODABLE_CONCEPT_CODE}}",
+          "unit": "{{DATA.CODABLE_CONCEPT_DISPLAY}}"
+        }
+      }
+    }
+  ]
+}

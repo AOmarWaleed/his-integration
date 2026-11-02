@@ -1,0 +1,249 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ClinicalDocument xmlns="urn:hl7-org:v3"
+	xmlns:nphies="urn:oid:2.16.840.1.113883.3.3731.1.2.2.11111111111110"
+	xmlns:pharm="{{DATA.PHARM_NAMESPACE#urn:ihe:pharm}}"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<realmCode code="SA" />
+	<typeId extension="POCD_HD000040" root="2.16.840.1.113883.1.3" />
+
+	{{DATA.HEADER_TEMPLATE_ID}}
+
+	
+	<id root="{{DATA.FULL_ORG_ID}}{{DATA.SET_ID}}" extension="{{DATA.PREFIX}}S-{{DATA.ORDER_LINE}}" />
+	<code code="{{DATA.code}}" codeSystem="2.16.840.1.113883.6.1"
+	codeSystemName="LOINC"
+	displayName="{{DATA.CODE_DISPLAY_NAME}}" />
+	<title>{{DATA.DOC_TITLE}}</title>
+	<!--TOcheck-->
+	<nphies:documentStatus
+		code="{{DATA.DOCUMENT_STATUS_CODE}}"
+		codeSystem="2.16.840.1.113883.4.642.4.236" codeSystemName="FHIRDiagnosticReportStatus"
+		displayName="{{DATA.DOCUMENT_STATUS_DISPLAY}}" />
+	<effectiveTime
+		value="{{DATA.CREATION_DATE}}" />
+	<confidentialityCode code="N"
+		codeSystem="2.16.840.1.113883.5.25" displayName="normal" />
+	<languageCode code="ar-SA" />
+	<setId
+		root="{{DATA.FULL_ORG_ID}}{{DATA.SET_ID}}"
+		extension="{{DATA.PREFIX}}S-{{DATA.ORDER_LINE}}" />
+	<versionNumber value="{{DATA.VERSION}}" />
+
+
+	{{DATA.RELATED_DOCUMENT}}
+
+	
+	<!--  Patient  -->
+	<recordTarget>
+		<patientRole>
+			<templateId root="2.16.840.1.113883.3.3731.1.203.28.1" />
+			<id extension="{{DATA.PATIENT.HEALTH_ID}}" root="2.16.840.1.113883.3.3731.1.1.100.1" />
+			<addr>
+				<streetAddressLine>{{DATA.PATIENT.street}}</streetAddressLine>
+				<city>{{DATA.PATIENT.city}}</city>
+				<postalCode>{{DATA.PATIENT.postal_code}}</postalCode>
+				<country>{{DATA.PATIENT.country}}</country>
+			</addr>
+			<telecom value="{{DATA.PATIENT.MOBILE_NO}}" />
+			<patient>
+				<name use="L ABC">
+					<family>{{DATA.PATIENT.last_name}}</family>
+					<given>{{DATA.PATIENT.first_name}}</given>
+				</name>
+				<administrativeGenderCode code="{{DATA.PATIENT.GENDER_CODE_MAP}}"
+					displayName="{{DATA.PATIENT.GENDER_MAP}}" codeSystem="2.16.840.1.113883.5.1" />
+				<birthTime value="{{DATA.PATIENT.birth_time}}" />
+				<maritalStatusCode code="{{DATA.PATIENT.MARITAL_STATUS_CODE_MAP}}"
+					displayName="{{DATA.PATIENT.MARITAL_STATUS_MAP}}"
+					codeSystem="2.16.840.1.113883.5.2" />
+				<religiousAffiliationCode code="{{DATA.PATIENT.RELIGION_CODE_MAP}}"
+					displayName="{{DATA.PATIENT.RELIGION_MAP}}"
+					codeSystem="2.16.840.1.113883.3.3731.1.202.10" />
+				<guardian>
+					<addr>
+						<streetAddressLine>{{DATA.PATIENT.GUARDIAN_STREET}}</streetAddressLine>
+						<city>{{DATA.PATIENT.GUARDIAN_CITY}}</city>
+						<postalCode>{{DATA.PATIENT.GUARDIAN_POSTAL_CODE}}</postalCode>
+						<country>{{DATA.PATIENT.GUARDIAN_COUNTRY}}</country>
+					</addr>
+					<telecom value="{{DATA.PATIENT.GUARDIAN_TELECOM}}" />
+					<guardianPerson>
+						<name>{{DATA.PATIENT.GUARDIAN_NAME}}</name>
+					</guardianPerson>
+				</guardian>
+				<languageCommunication>
+					<languageCode code="ara" />
+				</languageCommunication>
+			</patient>
+		</patientRole>
+	</recordTarget>
+	<!--  Author  -->
+	<author>
+		<templateId root="2.16.840.1.113883.3.3731.1.203.28.3" />
+		<functionCode code="100000003" codeSystem="2.16.840.1.113883.{{DATA.FUNCTION_CODE_SYSTEM}}"
+		codeSystemName="{{DATA.FUNCTION_CODE_NAME}}" displayName="Medicine and Surgery" />
+		<time value="{{DATA.CURRENT_DATE_TIME}}" />
+		<assignedAuthor>
+			<id extension="{{DATA.PHYSICIAN.IDENTIFIER_NO}}" root="2.16.840.1.113883.3.3731.1.2.1" />
+			<code code="{{DATA.HEALTH_CARE_ID}}" codeSystem="2.16.840.1.113883.3.3731.1.202.5"
+				codeSystemName="Healthcare Specialty Identifier"
+				displayName="{{DATA.HEALTH_DISPLAY_NAME}}" />
+			<addr>
+				<streetAddressLine>{{DATA.FACILITY.STREET}}</streetAddressLine>
+				<city>{{DATA.FACILITY.CITY}}</city>
+				<postalCode>{{DATA.FACILITY.POSTAL_CODE}}</postalCode>
+				<country>{{DATA.FACILITY.COUNTRY_CODE}}</country>
+			</addr>
+			<telecom value="{{DATA.PHYSICIAN.MOBILE_NO}}" />
+			<assignedPerson>
+				<name>
+					<prefix>{{DATA.PHYSICIAN.TITLE}}</prefix>
+					<family>{{DATA.PHYSICIAN.LAST_NAME}}</family>
+					<given>{{DATA.PHYSICIAN.FIRST_NAME}}</given>
+				</name>
+			</assignedPerson>
+			<representedOrganization>
+				<id extension="{{DATA.FACILITY.NPHIES_CS_ORG_ID}}"
+					root="2.16.840.1.113883.3.3731.1.2.2" />
+				<name>{{DATA.FACILITY.name}}</name>
+				<!--  no more detailed telecom provided as for assignedAuthor, nullFlavor is used  -->
+				<telecom nullFlavor="NI" />
+				<!--  no more detailed address provided as for assignedAuthor, nullFlavor is used  -->
+				<addr nullFlavor="NI" />
+			</representedOrganization>
+		</assignedAuthor>
+	</author>
+	<!--  Custodian of the document  -->
+	<custodian>
+		<assignedCustodian>
+			<representedCustodianOrganization>
+				<templateId root="2.16.840.1.113883.3.3731.1.203.28.4" />
+				<id extension="{{DATA.FACILITY.NPHIES_CS_ORG_ID}}"
+					root="2.16.840.1.113883.3.3731.1.2.2" />
+				<name>{{DATA.FACILITY.NAME}}</name>
+				<telecom value="{{DATA.PHYSICIAN.mobile_no}}" />
+				<addr>
+					<streetAddressLine>{{DATA.FACILITY.STREET}}</streetAddressLine>
+					<city>{{DATA.FACILITY.CITY}}</city>
+					<postalCode>{{DATA.FACILITY.POSTAL_CODE}}</postalCode>
+					<country>{{DATA.FACILITY.COUNTRY_CODE}}</country>
+				</addr>
+			</representedCustodianOrganization>
+		</assignedCustodian>
+	</custodian>
+	<!-- legal authenticator -->
+	<!-- !DONE for Report only  {{LEGAL_AUTHENTICATOR}} -->
+	{{DATA.LEGAL_AUTHENTICATOR}}
+
+		<!--
+			Performer (assisting person prior to entering the Emergency Department)
+	-->
+	{{DATA.PERFORMER}}
+	<!-- Result validator(s) -->
+	<!-- !DONE for Report only  {{AUTHENTICATOR}} -->
+	{{DATA.AUTHENTICATOR}}
+	<!--  Nationality of the patient  -->
+	<participant typeCode="SBJ">
+		<associatedEntity classCode="CIT">
+			<templateId root="2.16.840.1.113883.3.3731.1.203.28.2" />
+			<code code="{{DATA.PATIENT.NATIONALITY_CODE_MAP}}" codeSystem="1.0.3166.1" />
+		</associatedEntity>
+	</participant>
+	<!-- TODO: Referring physician / Ordering Provider 
+	!not exist at example  Doc\Nphies Clinical Service\nphies CS Onboarding Handbook\Appendices v6\Appendix29-Radiology orderExample-IS v4.6
+	-->
+	<participant typeCode="REF">
+		<templateId root="2.16.840.1.113883.3.3731.1.204.22" />
+		{{DATA.ORDERING_PROVIDER_PARTICIPANT_TEMPLATE_ID_2}}
+		<time value="20210601080000+0300" />
+		<associatedEntity classCode="PROV">
+			<id extension="13MM0035341" root="2.16.840.1.113883.3.3731.1.2.1" />
+			<addr>
+				<streetAddressLine>{{DATA.FACILITY.STREET}}</streetAddressLine>
+				<city>{{DATA.FACILITY.CITY}}</city>
+				<postalCode>{{DATA.FACILITY.POSTAL_CODE}}</postalCode>
+				<country>{{DATA.FACILITY.COUNTRY_CODE}}</country>
+			</addr>
+			<telecom value="{{DATA.PHYSICIAN.mobile_no}}" />
+			<associatedPerson>
+				<name>
+					<prefix>{{DATA.ORDERING_PROVIDER.TITLE}}</prefix>
+					<family>{{DATA.ORDERING_PROVIDER.LAST_NAME}}</family>
+					<given>{{DATA.ORDERING_PROVIDER.FIRST_NAME}}</given>
+				</name>
+			</associatedPerson>
+			<scopingOrganization>
+				<id extension="{{DATA.FACILITY.NPHIES_CS_ORG_ID}}" root="2.16.840.1.113883.3.3731.1.2.2" />
+				<name>{{DATA.FACILITY.NAME}}</name>
+				<telecom value="{{DATA.PHYSICIAN.mobile_no}}" />
+				<addr>
+					<streetAddressLine>{{DATA.FACILITY.STREET}}</streetAddressLine>
+					<city>{{DATA.FACILITY.CITY}}</city>
+					<postalCode>{{DATA.FACILITY.POSTAL_CODE}}</postalCode>
+					<country>{{DATA.FACILITY.COUNTRY_CODE}}</country>
+				</addr>
+			</scopingOrganization>
+		</associatedEntity>
+	</participant>
+	<!-- Links the document to the order or referral that triggered it. -->
+	<!-- !DONE for Radiology report only and {{IN_FULFILLMENT_OF}} -->
+	{{DATA.IN_FULFILLMENT_OF}}
+	<!-- ServiceEvent: Placer Order Id and status -->
+	<documentationOf>
+		<serviceEvent>
+			<templateId root="2.16.840.1.113883.3.3731.1.210.100.69" />
+			<id extension="{{DATA.PREFIX}}-{{DATA.ORDER_LINE}}"
+				root="{{DATA.FULL_ORG_ID}}{{DATA.ORDER_ID}}" /> <!--.1.2.3 removed todo WALID RADIOLOGY REPORT-->
+			<nphies:workflowStatusCode code="{{DATA.ORDER_STATUS_CODE}}"
+				displayName="{{DATA.ORDER_STATUS_DISPLAY}}" codeSystem="2.16.840.1.113883.5.14" />
+			<effectiveTime>
+				<low value="{{DATA.ORDER_EFFECTIVE_LOW}}" />
+				<high value="{{DATA.ORDER_EFFECTIVE_HIGH}}" />
+			</effectiveTime>
+		</serviceEvent>
+	</documentationOf>
+	 {{DATA.UNIQUE_SERVICE_EVENT}}
+	<!-- Encounter -->
+	<componentOf>
+		<encompassingEncounter>
+			<templateId root="2.16.840.1.113883.3.3731.1.105.7" />
+			<!--  Identifier of the patient's encounter  -->
+			<id extension="{{DATA.VISIT_NO}}"
+				root="2.16.840.1.113883.3.3731.1.2.2.100.1.1.{{DATA.FACILITY.NPHIES_CS_ORG_ID}}.300.1" />
+			<code code="{{DATA.ATTENDANCE_TYPE}}" displayName="{{DATA.ATTENDANCE_TYPE_DESC}}"
+				codeSystem="2.16.840.1.113883.18.5" codeSystemName="HL7 Patient Class" />
+			<effectiveTime>
+				<low value="{{DATA.ENCOUNTER_START}}" />
+				<!--  example: high element is omitted, because encounter is still ongoing  -->
+			</effectiveTime>
+			<location>
+				<healthCareFacility>
+					<id extension="{{DATA.FACILITY.NPHIES_CS_ORG_ID}}"
+						root="2.16.840.1.113883.3.3731.1.2.2" />
+					<location>
+						<name>{{DATA.DEPARTMENT_NAME}}</name>
+					</location>
+					<serviceProviderOrganization>
+						<name>{{DATA.FACILITY.NAME}}</name>
+					</serviceProviderOrganization>
+				</healthCareFacility>
+			</location>
+		</encompassingEncounter>
+	</componentOf>
+	<!-- 
+			=================================================
+			=================================================
+			=================================================
+
+			Clinical Content (structured)
+
+			=================================================
+			=================================================
+			=================================================
+	 -->
+	<component>
+		<structuredBody>
+			{{DATA.UNIQUE_BODY_SECTION}}
+		</structuredBody>
+	</component>
+</ClinicalDocument>

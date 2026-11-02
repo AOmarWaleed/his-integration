@@ -1,0 +1,63 @@
+{
+  "dependencies": {
+    "@givc/shared-backend": "^1.0.1",
+    "axios": "^1.13.4",
+    "base64-js": "^1.5.1",
+    "body-parser": "^2.2.2",
+    "colors": "^1.4.0",
+    "cors": "^2.8.5",
+    "dayjs": "^1.11.20",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "fast-xml-parser": "^5.9.3",
+    "hl7-standard": "^1.0.4",
+    "joi": "^18.0.2",
+    "json5": "^2.2.3",
+    "jsonwebtoken": "^9.0.3",
+    "net": "^1.0.2",
+    "node-cron": "^4.2.1",
+    "nodemon": "^3.1.11",
+    "oracledb": "^6.10.0",
+    "p-limit": "^7.3.0",
+    "pg": "^8.16.0",
+    "simple-saml": "^0.0.5",
+    "soap": "^1.9.3",
+    "stack-trace": "^1.0.0-pre2",
+    "uuid": "^13.0.0",
+    "winston": "^3.19.0",
+    "xml-crypto": "^2.1.4",
+    "xmldom": "^0.6.0"
+  },
+  "type": "module",
+  "name": "hl7-generator",
+  "version": "1.0.0",
+  "main": "app.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "dev": "nodemon app.js",
+    "dev:api": "nodemon app.js",
+    "dev:worker": "nodemon worker.js",
+    "start": "node app.js",
+    "start:api": "node app.js",
+    "start:worker": "node worker.js",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:restart": "pm2 restart ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop ecosystem.config.cjs",
+    "pm2:delete": "pm2 delete ecosystem.config.cjs"
+  },
+  "nodemonConfig": {
+    "ignore": [
+      "logs/**",
+      "*.log"
+    ]
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "pm2": "^7.0.4"
+  }
+}

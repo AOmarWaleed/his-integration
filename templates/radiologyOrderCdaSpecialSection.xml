@@ -1,0 +1,99 @@
+<component>
+    <section>
+        <templateId root="2.16.840.1.113883.3.3731.1.204.34" />
+        <code code="57832-8"
+            displayName="Prescription for diagnostic or specialist care"
+            codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" />
+        <title>Radiology Order</title>
+        <text>
+            <paragraph styleCode="Bold">Radiology Order</paragraph>
+        </text>
+        <!--
+							Sub-Section: Request
+					-->
+        <component>
+            <section>
+                <templateId root="2.16.840.1.113883.3.3731.1.204.35" />
+                <code code="55115-0" displayName="Requested imaging studies information"
+                    codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" />
+                <title>Request</title>
+                <text>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Procedure</th>
+                                <th>Modality</th>
+                                <th>Body Region</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr ID="order_imgproc-1">
+                                <td ID="order_imgproc-1_procedure"> {{DATA.PROCEDURE_DISPLAY}}</td>
+                                <td ID="order_imgproc-1_modality"> {{DATA.MODALITY_DISPLAY}}</td>
+                                <td ID="order_imgproc-1_bodyregion"> {{DATA.BODY_REGION_DISPLAY}}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </text>
+                <!-- Imaging Procedure Entry -->
+                <entry typeCode="DRIV">
+                    <procedure classCode="PROC" moodCode="EVN">
+                        <templateId root="2.16.840.1.113883.3.3731.1.204.38" />
+                        <code code="{{DATA.PROCEDURE_CODE}}"
+                            displayName="{{DATA.PROCEDURE_DISPLAY}}"
+                            codeSystem="2.16.840.1.113883.3.3731.1.204.15"
+                            codeSystemName="KSA Imaging Procedures">
+                            <originalText>
+                                <reference value="#order_imgproc-1_procedure" />
+                            </originalText>
+                        </code>
+                        <text>
+                            <reference value="#order_imgproc-1" />
+                        </text>
+                        <statusCode code="completed" />
+                        <methodCode code="{{DATA.MODALITY_CODE}}"
+                            displayName="{{DATA.MODALITY_DISPLAY}}"
+                            codeSystem="1.2.840.10008.2.16.4"
+                            codeSystemName="DICOM Controlled Terminology">
+                            <originalText>
+                                <reference value="#order_imgproc-1_modality" />
+                            </originalText>
+                        </methodCode>
+                        <targetSiteCode code="{{DATA.BODY_REGION_CODE}}"
+                            displayName="{{DATA.BODY_REGION_DISPLAY}}"
+                            codeSystem="2.16.840.1.113883.6.96"
+                            codeSystemName="SNOMED CT">
+                            <originalText>
+                                <reference value="#order_imgproc-1_bodyregion" />
+                            </originalText>
+                        </targetSiteCode>
+                    </procedure>
+                </entry>
+            </section>
+        </component>
+        <!--
+							Sub-Section: Procedure Indications
+					-->
+        <component>
+            <section>
+                <templateId root="2.16.840.1.113883.3.3731.1.204.36" />
+                <code code="59768-2" displayName="Procedure Indications"
+                    codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" />
+                <title>Procedure Indications</title>
+                <text>No information</text>
+            </section>
+        </component>
+        <!--
+							Sub-Section: Medical (General) History
+					-->
+        <component>
+            <section>
+                <templateId root="2.16.840.1.113883.3.3731.1.204.37" />
+                <code code="11329-0" displayName="History General"
+                    codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" />
+                <title>Medical (General) History</title>
+                <text>No information</text>
+            </section>
+        </component>
+    </section>
+</component>

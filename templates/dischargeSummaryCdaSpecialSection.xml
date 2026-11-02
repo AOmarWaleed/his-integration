@@ -1,0 +1,507 @@
+<!--
+					=================================================
+					Section: Chief Complaint
+
+						The Chief Complaint Section contains a free text subjective statement made by a patient describing the most significant or serious symptoms or signs of illness or dysfunction that caused him or her to seek healthcare.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.1"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.1.13.2.1"/>
+		<code code="10154-3"
+		      displayName="CHIEF COMPLAINT"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Chief Complaint</title>
+		<text>
+            {{DATA.CHIEF_COMPLAINT}} 
+        </text>
+	</section>
+</component>
+<!--
+					=================================================
+					Section: Hospital Admission Diagnosis Section
+
+						The Hospital Admission Diagnosis Section contains a description of the primary reason for the encounter.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.17"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.3"/>
+		<code code="46241-6"
+		      displayName="HOSPITAL ADMISSION DX"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Admitting Diagnosis</title>
+		<text>
+			<table>
+				<thead>
+					<tr>
+						<th>Diagnosis</th>
+						<th>Date from</th>
+						<th>Date to</th>
+						<th>Status</th>
+					</tr>
+				</thead>
+				<tbody>
+                   {{DATA.ADMITTING_DIAGNOSIS_ROWS}}
+                </tbody>
+			</table>
+		</text>
+       {{DATA.ADMITTING_DIAGNOSIS_ENTRIES}}
+	</section>
+</component>
+<!--
+					=================================================
+					Section: History of Present Illness Section
+
+						The History of Present Illness Section describes the history related to the reason for the encounter.
+						It contains the historical details leading up to and pertaining to the patient’s current complaint or reason for seeking medical care.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.4"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.4"/>
+		<code code="10164-2"
+		      displayName="HISTORY OF PRESENT ILLNESS"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>History of Present Illness</title>
+		<text>
+            {{DATA.HISTORY_OF_PRESENT_ILLNESS}}
+			<!--VS {{DATA.BRIEFHISTORY}}-->
+		</text>
+	</section>
+</component>
+<!--
+					=================================================
+					Section: Allergies and Adverse Reactions Section
+
+						The Allergies and Adverse Reactions Section is used to record both environmental and drug allergies, as well as the adverse reactions.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.8"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.13"/>
+		<templateId root="2.16.840.1.113883.10.20.1.2"/>
+		<code code="48765-2"
+		      displayName="ALLERGIES, ADVERSE REACTIONS, ALERTS"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Allergies and Adverse Reactions</title>
+		<text>
+			<table>
+				<thead>
+					<tr>
+						<th>Allergy Type</th>
+						<th>Allergy Substance</th>
+						<th>Date from</th>
+						<th>Date to</th>
+						<th>Status</th>
+					</tr>
+				</thead>
+				<tbody>
+                  {{DATA.ALLERGIES_AND_ADVERSE_REACTIONS_ROWS}}
+                </tbody>
+			</table>
+		</text>
+        {{DATA.ALLERGIES_AND_ADVERSE_REACTIONS_ENTRIES}}
+	</section>
+</component>
+<!--
+					=================================================
+					Section: Active Problems Section
+
+						Problem List Section contains the problems currently being monitored for the patient, including currently active and recently resolved problems.
+
+						This example shows "no problems", reflecting the situation, that the patient shows no other problems as the one which led to this hospital stay.
+						See the Admitting Diagnosis section for the Diagnosis, which led to this hospital stay.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.3"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.6"/>
+		<templateId root="2.16.840.1.113883.10.20.1.11"/>
+		<code code="11450-4"
+		      displayName="PROBLEM LIST"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Active problems</title>
+		<text>
+			<table>
+				<thead>
+					<tr>
+						<th>Diagnosis</th>
+						<th>Date from</th>
+						<th>Date to</th>
+						<th>Status</th>
+					</tr>
+				</thead>
+				<tbody>
+                   {{DATA.ACTIVE_PROBLEMS_ROWS}}
+                </tbody>
+			</table>
+		</text>
+       {{DATA.ACTIVE_PROBLEMS_ENTRIES}}
+	</section>
+</component>
+<!--
+					=================================================
+					Section: Admission Medications History Section
+
+						The Admission Medications History Section contains the information on a patient’s current and relevant medications as part of the admission to the Hospital.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.16"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.20"/>
+		<code code="42346-7"
+		      displayName="MEDICATIONS ON ADMISSION"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Medications History on Admission</title>
+		<text>
+		
+                  
+                    {{DATA.MEDICATIONS_HISTORY_ON_ADMISSION_ROWS}}
+           
+		</text>
+        {{DATA.MEDICATIONS_HISTORY_ON_ADMISSION_ENTRIES}}
+	</section>
+</component>
+<!--
+					=================================================
+					Section: Blood Group Coded Results Section
+
+						The Blood Group Coded Results Section contains observations on the Blood Group of the patient.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.14"/>
+		<code code="30954-2"
+		      displayName="STUDIES SUMMARY"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Blood Group Test Results</title>
+		<text>
+			<table>
+				<tbody>
+					{{DATA.BLOOD_GROUP_CODED_RESULTS_ROWS}}
+				</tbody>
+			</table>
+		</text>
+        {{DATA.BLOOD_GROUP_CODED_RESULTS_ENTRIES}}
+	</section>
+</component>
+<!--
+					=================================================
+					Section: Hospital Course Section
+
+						The Hospital Course Section describes the sequence of events during the course of the hospital stay.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.21"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.5"/>
+		<code code="8648-8"
+		      displayName="HOSPITAL COURSE"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Hospital Course</title>
+		<text>
+            {{DATA.HOSPITAL_COURSE}}
+		</text>
+	</section>
+</component>
+<!--
+					=================================================
+					Section: List of Surgeries Section
+
+						The History of Procedures Section defines all interventional, surgical, diagnostic, or therapeutic procedures or treatments pertinent to the patient historically at the time of the encounter.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.7"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.12"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.11"/>
+		<templateId root="2.16.840.1.113883.10.20.1.12"/>
+		<code code="47519-4"
+		      displayName="HISTORY OF PROCEDURES"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>List of Surgeries</title>
+		<text>
+			<table>
+				<thead>
+					<tr>
+						<th>Procedure</th>
+						<th>Date from</th>
+						<th>Date to</th>
+						<th>Status</th>
+					</tr>
+				</thead>
+				<tbody>
+                   {{ DATA.LIST_OF_SURGERIES_ROWS}}
+                </tbody>
+			</table>
+		</text>
+        {{DATA.LIST_OF_SURGERIES_ENTRIES}}
+	</section>
+</component>
+<!--
+					=================================================
+					Section: Surgical Drains Section
+
+						The Surgical Drains Section describes any drains implanted during a procedure.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.12"/>
+		<templateId root="2.16.840.1.113883.10.20.7.13"/>
+		<code code="11537-8"
+		      displayName="SURGICAL DRAINS"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Surgical Drains</title>
+		<text>
+            {{DATA.SURGICAL_DRAINS}}
+        </text>
+	</section>
+</component>
+<!--
+					=================================================
+					Section: Medications Administered Section
+
+						The Medications Administered Section contains the relevant medications administered to the patient during the hospital stay.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.18"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.21"/>
+		<code code="18610-6"
+		      displayName="MEDICATION ADMINISTERED"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Medications Administered</title>
+		<text>
+			
+                  
+                    {{DATA.MEDICATIONS_ADMINISTERED_ROWS}}
+		
+	</text>
+        {{DATA.MEDICATIONS_ADMINISTERED_ENTRIES}}
+	</section>
+</component>
+<!--
+					=================================================
+					Section: Immunizations Section
+
+						The Immunizations Section contains a list of the vaccinations administered to the patient during the encounter.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.6"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.23"/>
+		<templateId root="2.16.840.1.113883.10.20.1.6"/>
+		<code code="11369-6"
+		      displayName="HISTORY OF IMMUNIZATIONS"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Immunizations</title>
+		<text>
+			<table ID="immu-1">
+				<table ID="immu-{{DATA.INDEX}}">
+					<tbody>
+                  
+                    {{DATA.IMMUNIZATION_ROWS}}
+						<!-- notExist (code , des-->
+					</tbody>
+				</table>
+			</table>
+		</text>
+        {{DATA.IMMUNIZATION_ENTRIES}}
+	</section>
+</component>
+<!--
+					=================================================
+					Section: Vital Signs Section
+
+						The Vital Signs Section contains coded measurement results of a patient’s vital signs.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.10"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.1.5.3.2"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.25"/>
+		<templateId root="2.16.840.1.113883.10.20.1.16"/>
+		<code code="8716-3"
+		      displayName="VITAL SIGNS"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Vital Signs</title>
+		<text>
+			{{DATA.VITAL_SIGNS_ROWS}}
+		</text>
+		{{DATA.VITAL_SIGNS_ENTRIES}}
+	</section>
+</component>
+<!--
+					=================================================
+					Section: Physical Examination Section
+
+						The Physical Examination Section includes direct observations made by the clinician. The examination may include the use of simple instruments and may also describe simple maneuvers performed directly on the patient’s body.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.9"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.24"/>
+		<code code="29545-1"
+		      displayName="PHYSICAL EXAMINATION"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Physical Examination</title>
+		<text>
+            {{DATA.PHYSICAL_EXAMINATION}}
+        </text>
+	</section>
+</component>
+<!--
+					=================================================
+					Section: Visible Implanted Medical Devices Section
+
+						The Visible Implanted Medical Devices Section includes a description of the medical devices apparent on physical exam that have been inserted into the patient, whether internal or partially external.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.11"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.1.9.48"/>
+		<code code="57080-4"
+		      displayName="IMPLANTED MEDICAL DEVICE"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Visible Implanted Medical Devices</title>
+		<text>
+            {{DATA.VISIBLE_IMPLANTED_MEDICAL_DEVICES}}
+        </text>
+	</section>
+</component>
+<!--
+					=================================================
+					Section: Hospital Discharge Medications Section
+
+						The Discharge Medications Section contains the patient's current medications and pertinent medication history at the end of the hospital stay.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.19"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.22"/>
+		<code code="10183-2"
+		      displayName="HOSPITAL DISCHARGE MEDICATIONS"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Hospital Discharge Medications</title>
+		<text>
+			<table>
+				<tbody>
+                    {{DATA.HOSPITAL_DISCHARGE_MEDICATIONS_ROWS}}
+                </tbody>
+			</table>
+		</text>
+        {{DATA.HOSPITAL_DISCHARGE_MEDICATIONS_ENTRIES}}
+	</section>
+</component>
+<!--
+					=================================================
+					Section: Care Plan Section
+
+						The Care Plan Section describes any pending orders, interventions, encounters, services and procedures for the patient after the completion of the Outpatient encounter.
+						The Plan of Care may also include other information such as patient education, nutritional diet, follow-up orders, etc.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.13"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.31"/>
+		<templateId root="2.16.840.1.113883.10.20.1.10"/>
+		<code code="61145-9"
+		      displayName="TREATMENT PLAN"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Care Plan</title>
+		<text>
+            {{DATA.CARE_PLAN}}
+        </text>
+	</section>
+</component>
+<!--
+					=================================================
+					Section: Discharge Diagnosis Section
+
+						The Discharge Diagnosis Section contains a narrative description of the conditions that need to be monitored after discharge from the hospital and those that were resolved during the hospital course.
+						It shall include entries for patient conditions as described in the Entry Content Module.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.20"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.7"/>
+		<code code="11535-2"
+		      displayName="HOSPITAL DISCHARGE DX"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Discharge Diagnosis</title>
+		<text>
+			<table>
+				<thead>
+					<tr>
+						<th>Diagnosis</th>
+						<th>Date from</th>
+						<th>Date to</th>
+						<th>Status</th>
+					</tr>
+				</thead>
+				<tbody>
+                   {{DATA.DISCHARGE_DIAGNOSIS_ROWS}}
+                </tbody>
+			</table>
+		</text>
+       {{DATA.DISCHARGE_DIAGNOSIS_ENTRIES}}
+	</section>
+</component>
+<!--
+					=================================================
+					Section: Discharge Disposition Section
+
+						The Discharge Disposition Section contains the place the patient is going or being sent upon discharge from the hospital.
+					=================================================
+			-->
+<component>
+	<section>
+		<templateId root="2.16.840.1.113883.3.3731.1.210.100.22"/>
+		<templateId root="1.3.6.1.4.1.19376.1.5.3.1.3.32"/>
+		<code code="8650-4"
+		      displayName="HOSPITAL DISCHARGE DISPOSITION"
+		      codeSystem="2.16.840.1.113883.6.1"
+		      codeSystemName="LOINC"/>
+		<title>Discharge Disposition</title>
+		<text>
+            {{DATA.DISCHARGE_DISPOSITION}}
+        </text>
+	</section>
+</component>

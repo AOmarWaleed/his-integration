@@ -1,0 +1,65 @@
+<!-- Document Metadata element: eventCodeList[2]: ServiceEvent[2]: Part 1: Procedure Code -->
+<rim:Classification classificationScheme="urn:uuid:2c6b8cb7-8b2a-4051-b291-b1ae6a575ef4"
+	classifiedObject="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}"
+	id="cl07b"
+	nodeRepresentation="{{DATA.PROCEDURE_CODE}}">
+	<rim:Slot name="codingScheme">
+		<rim:ValueList>
+			<rim:Value>2.16.840.1.113883.3.3731.1.204.15</rim:Value>
+		</rim:ValueList>
+	</rim:Slot>
+	<rim:Name>
+		<rim:LocalizedString value="{{DATA.PROCEDURE_DISPLAY}}" />
+	</rim:Name>
+</rim:Classification>
+<!-- Document Metadata element: eventCodeList[3]: ServiceEvent[2]: Part 2: Modality Code -->
+<rim:Classification classificationScheme="urn:uuid:2c6b8cb7-8b2a-4051-b291-b1ae6a575ef4"
+	classifiedObject="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}"
+	id="cl07c"
+	nodeRepresentation="{{DATA.MODALITY_CODE}}">
+	<rim:Slot name="codingScheme">
+		<rim:ValueList>
+			<rim:Value>1.2.840.10008.2.16.4</rim:Value>
+		</rim:ValueList>
+	</rim:Slot>
+	<rim:Name>
+		<rim:LocalizedString value="{{DATA.MODALITY_DISPLAY}}" />
+	</rim:Name>
+</rim:Classification>
+<!-- Document Metadata element: eventCodeList[3]: ServiceEvent[2]: Part 3: BodyRegion Code -->
+<rim:Classification classificationScheme="urn:uuid:2c6b8cb7-8b2a-4051-b291-b1ae6a575ef4"
+	classifiedObject="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}"
+	id="cl07c"
+	nodeRepresentation="{{DATA.BODY_REGION_CODE}}">
+	<rim:Slot name="codingScheme">
+		<rim:ValueList>
+			<rim:Value>2.16.840.1.113883.6.96</rim:Value>
+		</rim:ValueList>
+	</rim:Slot>
+	<rim:Name>
+		<rim:LocalizedString value="{{DATA.BODY_REGION_DISPLAY}}" />
+	</rim:Name>
+</rim:Classification>
+<!-- Document Metadata element: serviceStartTime (in UTC time) -->
+<rim:Slot name="serviceStartTime">
+	<rim:ValueList>
+		<rim:Value>{{DATA.CURRENT_DATE_TIME}}</rim:Value>
+	</rim:ValueList>
+</rim:Slot>
+<!-- Document Metadata element: serviceStopTime (in UTC time) -->
+<rim:Slot name="serviceStopTime">
+	<rim:ValueList>
+		<rim:Value>{{DATA.SERVICE_STOP_TIME}}</rim:Value>
+	</rim:ValueList>
+</rim:Slot>
+<!-- Document Metadata element: eventCodeList[1]: ServiceEvent[1]: Order status -->
+<rim:Classification classificationScheme="urn:uuid:2c6b8cb7-8b2a-4051-b291-b1ae6a575ef4" classifiedObject="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}" id="cl07a" nodeRepresentation="{{DATA.ORDER_STATUS_CODE}}">
+	<rim:Slot name="codingScheme">
+		<rim:ValueList>
+			<rim:Value>2.16.840.1.113883.5.14</rim:Value>
+		</rim:ValueList>
+	</rim:Slot>
+	<rim:Name>
+		<rim:LocalizedString value="{{DATA.ORDER_STATUS_DISPLAY}}"/>
+	</rim:Name>
+</rim:Classification>

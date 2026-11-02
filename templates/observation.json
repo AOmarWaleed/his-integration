@@ -1,0 +1,31 @@
+
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "{{DATA.OBSERVATION_ID}}",
+        "meta": {
+          "profile": [
+            "http://nphies.sa/fhir/ksa/nphies-cs/StructureDefinition/additionalorderinformation|1.0"
+          ]
+        },
+        "status": "registered",
+        "code": {
+          "coding": [
+            {
+              "system": "urn:oid:2.16.840.1.113883.6.96",
+              "code": "{{DATA.OBSERVATION_CODE}}",
+              "display": "{{DATA.OBSERVATION_DISPLAY}}"
+            }
+          ]
+        },
+        "valueCodeableConcept": {
+          "coding": [
+            {
+              "system": "2.16.840.1.113883.6.135",
+              "code": "{{DATA.CODABLE_CONCEPT_CODE}}",
+              "display": "{{DATA.CODABLE_CONCEPT_DISPLAY}}"
+            }
+          ]
+        }
+      }
+    }

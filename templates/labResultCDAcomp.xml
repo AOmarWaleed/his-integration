@@ -1,0 +1,43 @@
+<component typeCode="COMP">
+	<observation classCode="OBS"
+				 moodCode="EVN">
+		<templateId root="2.16.840.1.113883.3.3731.1.105.16" />
+		<templateId root="1.3.6.1.4.1.19376.1.3.1.6" />
+		<id extension="obs_{{DATA.OBS_ID}}"
+			root="2.16.840.1.113883.3.3731.1.2.2.100.1.1" />
+		<code code="{{DATA.SERVICE_CODE}}"
+			  codeSystem="2.16.840.1.113883.6.1"
+			  displayName="{{DATA.SERVICE_DESC}}" />
+		<text>
+			<reference value="#obs{{DATA.OBS_ID}}-test" />
+		</text>
+		<statusCode code="{{DATA.DOCUMENT_STATUS_CODE}}" />
+		<!-- observation status -->
+		<nphies:observationStatus code="{{DATA.DOCUMENT_STATUS_CODE}}"
+								  codeSystem="2.16.840.1.113883.4.642.4.400"
+								  codeSystemName="FHIRDiagnosticReportStatus"
+								  displayName="{{DATA.DOCUMENT_STATUS_DISPLAY}}" />
+		<effectiveTime value="{{DATA.RESULT_DATE_HRS}}" /> {{DATA.OBSERVATION_VALUE}} <!-- Interpretation of observed value -->
+		<interpretationCode code="{{DATA.INTERPRETATION_CODE}}"
+							codeSystem="2.16.840.1.113883.5.83"
+							codeSystemName="HL7:ObservationInterpretation"
+							displayName="{{DATA.INTERPRETATION_DESC}}">
+			<originalText>
+				<reference value="#obs{{DATA.OBS_ID}}-interpretation" />
+			</originalText>
+		</interpretationCode>
+		<!-- Reference Range -->
+		<referenceRange typeCode="REFV">
+			<observationRange classCode="OBS"
+							  moodCode="EVN.CRT">
+				<text>
+					<reference value="#obs{{DATA.OBS_ID}}-refrange" />
+					{{DATA.OBSERVATION_RANGE_TEXT}}
+				</text> {{DATA.REF_RANGE_VALUE}} <interpretationCode code="N"
+									codeSystem="2.16.840.1.113883.5.83"
+									codeSystemName="HL7:ObservationInterpretation"
+									displayName="Normal" />
+			</observationRange>
+		</referenceRange>
+	</observation>
+</component>

@@ -1,0 +1,614 @@
+<ClinicalDocument xmlns="urn:hl7-org:v3" xmlns:lab="urn:oid:1.3.6.1.4.1.19376.1.3.2" xmlns:nphies="urn:oid:2.16.840.1.113883.3.3731.1.2.2.15000000112242" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <realmCode code="SA"/>
+    <typeId extension="POCD_HD000040" root="2.16.840.1.113883.1.3"/>
+    <templateId root="2.16.840.1.113883.3.3731.1.105.1"/>
+    <id root="2.16.840.1.113883.3.3731.1.2.2.100.1.1.15000000112242.100.1" extension="25466374"/>
+    <code code="57832-8" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" displayName="Prescription for diagnostic or specialist care"/>
+    <title>Laboratory Order</title>
+    <nphies:documentStatus code="final" codeSystem="2.16.840.1.113883.4.642.4.236" codeSystemName="FHIRDiagnosticReportStatus" displayName="Final"/>
+    <effectiveTime value="20260407172347+0300"/>
+    <confidentialityCode code="N" codeSystem="2.16.840.1.113883.5.25" displayName="normal"/>
+    <languageCode code="ar-SA"/>
+    <setId root="2.16.840.1.113883.3.3731.1.2.2.100.1.1.15000000112242.100.1" extension="25466374"/>
+    <versionNumber value="1"/>
+    <!--  Patient  -->
+    <recordTarget>
+        <patientRole>
+            <templateId root="2.16.840.1.113883.3.3731.1.203.28.1"/>
+            <id extension="30511223344556" root="2.16.840.1.113883.3.3731.1.1.100.1"/>
+            <addr>
+                <streetAddressLine/>
+                <city/>
+                <postalCode/>
+                <country>SAU</country>
+            </addr>
+            <telecom value="tel:05555555555555"/>
+            <patient>
+                <name use="L ABC">
+                    <family>SALEM</family>
+                    <given>FAHAD</given>
+                    <given>ALSHMARE</given>
+                    <suffix/>
+                </name>
+                <administrativeGenderCode code="M" displayName="Male" codeSystem="2.16.840.1.113883.5.1"/>
+                <birthTime value="20150321"/>
+                <maritalStatusCode code="5" displayName="Unknown" codeSystem="2.16.840.1.113883.5.2"/>
+                <religiousAffiliationCode code="1" displayName="Islam" codeSystem="2.16.840.1.113883.3.3731.1.202.10"/>
+                <guardian>
+                    <addr>
+                        <streetAddressLine>1234 Guardian St</streetAddressLine>
+                        <city>Riyadh</city>
+                        <postalCode>13337</postalCode>
+                        <country>Saudi Arabia</country>
+                    </addr>
+                    <telecom value="tel:+974.143.2345678"/>
+                    <guardianPerson>
+                        <name>ALQAHTANI Heba (mother)</name>
+                    </guardianPerson>
+                </guardian>
+                <languageCommunication>
+                    <languageCode code="ara"/>
+                </languageCommunication>
+            </patient>
+        </patientRole>
+    </recordTarget>
+    <!--  Author  -->
+    <author>
+        <templateId root="2.16.840.1.113883.3.3731.1.203.28.3"/>
+        <functionCode code="100000003" codeSystem="2.16.840.1.113883.6.96" codeSystemName="SNOMED CT" displayName="Medicine and Surgery"/>
+        <time value="20260407172347+0300"/>
+        <assignedAuthor>
+            <id extension="R1471" root="2.16.840.1.113883.3.3731.1.2.1"/>
+            <code code="CE9D7C6B-62F9-E811-B80F-005056AD2FD8" codeSystem="2.16.840.1.113883.3.3731.1.202.5" codeSystemName="Healthcare Specialty Identifier" displayName="Laboratory - Microbiology"/>
+            <addr>
+                <streetAddressLine>3920 Mathar Alshibani St</streetAddressLine>
+                <city>Jeddah</city>
+                <postalCode>63451</postalCode>
+                <country>SAU</country>
+            </addr>
+            <telecom value="tel:+000000000000"/>
+            <assignedPerson>
+                <name>
+                    <prefix>Dr</prefix>
+                    <family>SALAMA</family>
+                    <given>MOHAMED</given>
+                </name>
+            </assignedPerson>
+            <representedOrganization>
+                <id extension="15000000112242" root="2.16.840.1.113883.3.3731.1.2.2"/>
+                <name>International University Hospital</name>
+                <!--  no more detailed telecom provided as for assignedAuthor, nullFlavor is used  -->
+                <telecom nullFlavor="NI"/>
+                <!--  no more detailed address provided as for assignedAuthor, nullFlavor is used  -->
+                <addr nullFlavor="NI"/>
+            </representedOrganization>
+        </assignedAuthor>
+    </author>
+    <!--  Custodian of the document  -->
+    <custodian>
+        <assignedCustodian>
+            <representedCustodianOrganization>
+                <templateId root="2.16.840.1.113883.3.3731.1.203.28.4"/>
+                <id extension="15000000112242" root="2.16.840.1.113883.3.3731.1.2.2"/>
+                <name>International University Hospital</name>
+                <telecom value="tel:+000000000000"/>
+                <addr>
+                    <streetAddressLine>3920 Mathar Alshibani St</streetAddressLine>
+                    <city>Jeddah</city>
+                    <postalCode>63451</postalCode>
+                    <country>SAU</country>
+                </addr>
+            </representedCustodianOrganization>
+        </assignedCustodian>
+    </custodian>
+    <!--  Nationality of the patient  -->
+    <participant typeCode="SBJ">
+        <associatedEntity classCode="CIT">
+            <templateId root="2.16.840.1.113883.3.3731.1.203.28.2"/>
+            <code code="52222" codeSystem="1.0.3166.1"/>
+        </associatedEntity>
+    </participant>
+    <!-- 
+			ServiceEvent: Placer Order Id and status
+	 -->
+    <documentationOf>
+        <serviceEvent>
+            <templateId root="2.16.840.1.113883.3.3731.1.210.100.69"/>
+            <id extension="11598594" root="2.16.840.1.113883.3.3731.1.2.2.100.1.1.15000000112242.1.2.3"/>
+            <nphies:workflowStatusCode code="new" displayName="Order has been created" codeSystem="2.16.840.1.113883.5.14"/>
+            <effectiveTime>
+                <low value="20240612094858+0300"/>
+                <high value="20260407172347+0300"/>
+            </effectiveTime>
+        </serviceEvent>
+    </documentationOf>
+    <!-- 
+			ServiceEvent(s) ordered: Lab Specialties (dynamic)
+	 -->
+    <!-- 
+			ServiceEvent 1 ordered: Laboratory Studies
+	 -->
+    <documentationOf>
+        <serviceEvent>
+            <templateId root="2.16.840.1.113883.3.3731.1.105.21"/>
+            <code code="26436-6" displayName="Laboratory Studies" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC"/>
+        </serviceEvent>
+    </documentationOf>
+    <!-- 
+			ServiceEvent 2 ordered: Laboratory Studies
+	 -->
+    <documentationOf>
+        <serviceEvent>
+            <templateId root="2.16.840.1.113883.3.3731.1.105.21"/>
+            <code code="26436-6" displayName="Laboratory Studies" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC"/>
+        </serviceEvent>
+    </documentationOf>
+
+    <!-- 
+			Encounter
+	 -->
+    <componentOf>
+        <encompassingEncounter>
+            <templateId root="2.16.840.1.113883.3.3731.1.105.7"/>
+            <!--  Identifier of the patient's encounter  -->
+            <id extension="I131330995" root="2.16.840.1.113883.3.3731.1.2.2.100.1.1.15000000112242.300.1"/>
+            <code code="I" displayName="Inpatient" codeSystem="2.16.840.1.113883.18.5" codeSystemName="HL7 Patient Class"/>
+            <effectiveTime>
+                <low value="20240612095003+0300"/>
+                <!--  example: high element is omitted, because encounter is still ongoing  -->
+            </effectiveTime>
+            <location>
+                <healthCareFacility>
+                    <id extension="15000000112242" root="2.16.840.1.113883.3.3731.1.2.2"/>
+                    <location>
+                        <name>Internal medicine department</name>
+                    </location>
+                    <serviceProviderOrganization>
+                        <name>International University Hospital</name>
+                    </serviceProviderOrganization>
+                </healthCareFacility>
+            </location>
+        </encompassingEncounter>
+    </componentOf>
+    <!-- 
+			=================================================
+			=================================================
+			=================================================
+
+			Clinical Content (structured)
+
+			=================================================
+			=================================================
+			=================================================
+	 -->
+    <component>
+        <structuredBody>
+            <!-- 
+					=================================================
+					Laboratory Order Specialty Sections (dynamic)
+					=================================================
+			 -->
+            <!-- 
+					=================================================
+					=================================================
+
+					Laboratory Order Specialty section 1: Laboratory Studies
+
+					=================================================
+					=================================================
+			 -->
+            <component>
+                <section>
+                    <templateId root="2.16.840.1.113883.3.3731.1.105.14"/>
+                    <code code="26436-6" displayName="Laboratory Studies" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC"/>
+                    <title>Laboratory Studies</title>
+                    <text>
+                        <paragraph styleCode="Bold">Lab Order</paragraph>
+<br/> Lab order type: Laboratory Studies <br/>
+<paragraph styleCode="Bold">Specimen Procedure</paragraph>
+<br/>
+<list>
+                            <item ID="order_specimen_BC_1-collectiontime">Collection Time: Thu Mar 15 2018 08:15:12 GMT+0300 (Arabian Standard Time)</item>
+                            <item ID="order_specimen_BC_1-type">BLOOD GASES</item>
+                            <item ID="order_specimen_BC_1-source">BLOOD GASES</item>
+                            <item ID="order_specimen_BC_1-collectionmethod"/>
+                            <item ID="order_specimen_BC_1-handling"/>
+                            <item ID="order_specimen_BC_1-risk"/>
+                            <item ID="order_specimen_BC_1-riskcomment"/>
+                            <item ID="order_specimen_BC_2-collectiontime">Collection Time: Thu Mar 15 2018 08:15:12 GMT+0300 (Arabian Standard Time)</item>
+                            <item ID="order_specimen_BC_2-type">BLOOD GASES</item>
+                            <item ID="order_specimen_BC_2-source">BLOOD GASES</item>
+                            <item ID="order_specimen_BC_2-collectionmethod"/>
+                            <item ID="order_specimen_BC_2-handling"/>
+                            <item ID="order_specimen_BC_2-risk"/>
+                            <item ID="order_specimen_BC_2-riskcomment"/>
+                            <item ID="order_specimen_BC_3-collectiontime">Collection Time: Sat Mar 03 2018 08:44:24 GMT+0300 (Arabian Standard Time)</item>
+                            <item ID="order_specimen_BC_3-type">ERYTHROCYTE SEDIMENTATIONRATE (ESR)</item>
+                            <item ID="order_specimen_BC_3-source">ERYTHROCYTE SEDIMENTATIONRATE (ESR)</item>
+                            <item ID="order_specimen_BC_3-collectionmethod"/>
+                            <item ID="order_specimen_BC_3-handling"/>
+                            <item ID="order_specimen_BC_3-risk"/>
+                            <item ID="order_specimen_BC_3-riskcomment"/>
+                            <item ID="order_specimen_BC_4-collectiontime">Collection Time: Tue Aug 27 2024 14:56:42 GMT+0300 (Arabian Standard Time)</item>
+                            <item ID="order_specimen_BC_4-type">C-REACTIVE PROTEIN</item>
+                            <item ID="order_specimen_BC_4-source">C-REACTIVE PROTEIN</item>
+                            <item ID="order_specimen_BC_4-collectionmethod"/>
+                            <item ID="order_specimen_BC_4-handling"/>
+                            <item ID="order_specimen_BC_4-risk"/>
+                            <item ID="order_specimen_BC_4-riskcomment"/>
+                            <item ID="order_specimen_BC_5-collectiontime">Collection Time: Sun Oct 15 2023 09:26:25 GMT+0300 (Arabian Standard Time)</item>
+                            <item ID="order_specimen_BC_5-type">ELECTROLYTES (NA, K, CL) SERUM</item>
+                            <item ID="order_specimen_BC_5-source">ELECTROLYTES (NA, K, CL) SERUM</item>
+                            <item ID="order_specimen_BC_5-collectionmethod"/>
+                            <item ID="order_specimen_BC_5-handling"/>
+                            <item ID="order_specimen_BC_5-risk"/>
+                            <item ID="order_specimen_BC_5-riskcomment"/>
+                        </list>
+<br/>
+<paragraph styleCode="Bold">Laboratory Test(s) Ordered</paragraph>
+<br/>
+<table>
+                            <thead>
+                                <tr>
+                                    <th>Test</th>
+                                    <th>Priority</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td ID="order_test_BC_1-code">148043, 148043</td>
+                                    <td ID="order_test_BC_1-prioritycode">Routine</td>
+                                </tr>
+                                <tr>
+                                    <td ID="order_test_BC_2-code">148043, 148043</td>
+                                    <td ID="order_test_BC_2-prioritycode">Routine</td>
+                                </tr>
+                                <tr>
+                                    <td ID="order_test_BC_3-code">147588, 147588</td>
+                                    <td ID="order_test_BC_3-prioritycode">Routine</td>
+                                </tr>
+                                <tr>
+                                    <td ID="order_test_BC_4-code">147477, 147477</td>
+                                    <td ID="order_test_BC_4-prioritycode">Routine</td>
+                                </tr>
+                                <tr>
+                                    <td ID="order_test_BC_5-code">147595, 147595</td>
+                                    <td ID="order_test_BC_5-prioritycode">Routine</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </text>
+                    <!--  
+							****************************
+							Specimen Collection 1
+							****************************
+				 -->
+                    <entry typeCode="DRIV">
+                        <procedure classCode="PROC" moodCode="EVN">
+                            <templateId root="2.16.840.1.113883.3.3731.1.105.10"/>
+                            <templateId root="1.3.6.1.4.1.19376.1.3.1.2"/>
+                            <code code="33882-2" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" displayName="Specimen Collection"/>
+                            <!--  Date and time of specimen collection  -->
+                            <effectiveTime value="Thu Mar 15 2018 08:15:12 GMT+0300 (Arabian Standard Time)"/>
+                            <!--  Specimen  -->
+                            <participant typeCode="PRD">
+                                <participantRole classCode="SPEC">
+                                    <id extension="spec1" root="2.16.840.1.113883.3.3731.1.2.2.100.1.1.15000000112242.200.201.202"/>
+                                    <playingEntity>
+                                        <code code="30246" displayName="BLOOD GASES" codeSystem="2.16.840.1.113883.5.129" codeSystemName="Laboratory Specimen Type">
+                                            <originalText>
+                                                <reference value="#order_specimen_BC_1-type"/>
+                                            </originalText>
+                                        </code>
+                                    </playingEntity>
+                                </participantRole>
+                            </participant>
+                        </procedure>
+                    </entry>
+                    <!--  
+							****************************
+							Specimen Collection 2
+							****************************
+				 -->
+                    <entry typeCode="DRIV">
+                        <procedure classCode="PROC" moodCode="EVN">
+                            <templateId root="2.16.840.1.113883.3.3731.1.105.10"/>
+                            <templateId root="1.3.6.1.4.1.19376.1.3.1.2"/>
+                            <code code="33882-2" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" displayName="Specimen Collection"/>
+                            <!--  Date and time of specimen collection  -->
+                            <effectiveTime value="Thu Mar 15 2018 08:15:12 GMT+0300 (Arabian Standard Time)"/>
+                            <!--  Specimen  -->
+                            <participant typeCode="PRD">
+                                <participantRole classCode="SPEC">
+                                    <id extension="spec2" root="2.16.840.1.113883.3.3731.1.2.2.100.1.1.15000000112242.200.201.202"/>
+                                    <playingEntity>
+                                        <code code="30246" displayName="BLOOD GASES" codeSystem="2.16.840.1.113883.5.129" codeSystemName="Laboratory Specimen Type">
+                                            <originalText>
+                                                <reference value="#order_specimen_BC_2-type"/>
+                                            </originalText>
+                                        </code>
+                                    </playingEntity>
+                                </participantRole>
+                            </participant>
+                        </procedure>
+                    </entry>
+                    <!--  
+							****************************
+							Specimen Collection 3
+							****************************
+				 -->
+                    <entry typeCode="DRIV">
+                        <procedure classCode="PROC" moodCode="EVN">
+                            <templateId root="2.16.840.1.113883.3.3731.1.105.10"/>
+                            <templateId root="1.3.6.1.4.1.19376.1.3.1.2"/>
+                            <code code="33882-2" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" displayName="Specimen Collection"/>
+                            <!--  Date and time of specimen collection  -->
+                            <effectiveTime value="Sat Mar 03 2018 08:44:24 GMT+0300 (Arabian Standard Time)"/>
+                            <!--  Specimen  -->
+                            <participant typeCode="PRD">
+                                <participantRole classCode="SPEC">
+                                    <id extension="spec3" root="2.16.840.1.113883.3.3731.1.2.2.100.1.1.15000000112242.200.201.202"/>
+                                    <playingEntity>
+                                        <code code="10580" displayName="ERYTHROCYTE SEDIMENTATIONRATE (ESR)" codeSystem="2.16.840.1.113883.5.129" codeSystemName="Laboratory Specimen Type">
+                                            <originalText>
+                                                <reference value="#order_specimen_BC_3-type"/>
+                                            </originalText>
+                                        </code>
+                                    </playingEntity>
+                                </participantRole>
+                            </participant>
+                        </procedure>
+                    </entry>
+                    <!--  
+							****************************
+							Specimen Collection 4
+							****************************
+				 -->
+                    <entry typeCode="DRIV">
+                        <procedure classCode="PROC" moodCode="EVN">
+                            <templateId root="2.16.840.1.113883.3.3731.1.105.10"/>
+                            <templateId root="1.3.6.1.4.1.19376.1.3.1.2"/>
+                            <code code="33882-2" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" displayName="Specimen Collection"/>
+                            <!--  Date and time of specimen collection  -->
+                            <effectiveTime value="Tue Aug 27 2024 14:56:42 GMT+0300 (Arabian Standard Time)"/>
+                            <!--  Specimen  -->
+                            <participant typeCode="PRD">
+                                <participantRole classCode="SPEC">
+                                    <id extension="spec4" root="2.16.840.1.113883.3.3731.1.2.2.100.1.1.15000000112242.200.201.202"/>
+                                    <playingEntity>
+                                        <code code="30248" displayName="C-REACTIVE PROTEIN" codeSystem="2.16.840.1.113883.5.129" codeSystemName="Laboratory Specimen Type">
+                                            <originalText>
+                                                <reference value="#order_specimen_BC_4-type"/>
+                                            </originalText>
+                                        </code>
+                                    </playingEntity>
+                                </participantRole>
+                            </participant>
+                        </procedure>
+                    </entry>
+                    <!--  
+							****************************
+							Specimen Collection 5
+							****************************
+				 -->
+                    <entry typeCode="DRIV">
+                        <procedure classCode="PROC" moodCode="EVN">
+                            <templateId root="2.16.840.1.113883.3.3731.1.105.10"/>
+                            <templateId root="1.3.6.1.4.1.19376.1.3.1.2"/>
+                            <code code="33882-2" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" displayName="Specimen Collection"/>
+                            <!--  Date and time of specimen collection  -->
+                            <effectiveTime value="Sun Oct 15 2023 09:26:25 GMT+0300 (Arabian Standard Time)"/>
+                            <!--  Specimen  -->
+                            <participant typeCode="PRD">
+                                <participantRole classCode="SPEC">
+                                    <id extension="spec5" root="2.16.840.1.113883.3.3731.1.2.2.100.1.1.15000000112242.200.201.202"/>
+                                    <playingEntity>
+                                        <code code="30248" displayName="ELECTROLYTES (NA, K, CL) SERUM" codeSystem="2.16.840.1.113883.5.129" codeSystemName="Laboratory Specimen Type">
+                                            <originalText>
+                                                <reference value="#order_specimen_BC_5-type"/>
+                                            </originalText>
+                                        </code>
+                                    </playingEntity>
+                                </participantRole>
+                            </participant>
+                        </procedure>
+                    </entry>
+                    <!--  
+							==================================
+							Laboratory Order Data Processing Entry(s)
+							==================================
+				 -->
+                    <!--  
+							Laboratory Order Data Processing Entry: Ordered test 1
+				 -->
+                    <entry typeCode="DRIV">
+                        <templateId root="2.16.840.1.113883.3.3731.1.105.3"/>
+                        <act classCode="ACT" moodCode="RQO">
+                            <code code="148043" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" displayName="148043">
+                                <originalText>
+                                    <reference value="#order_test_BC_1-code"/>
+                                </originalText>
+                            </code>
+                            <priorityCode code="R" displayName="Routine" codeSystem="2.16.840.1.113883.5.7">
+                                <originalText>
+                                    <reference value="#order_test_BC_1-prioritycode"/>
+                                </originalText>
+                            </priorityCode>
+                        </act>
+                    </entry>
+                    <!--  
+							Laboratory Order Data Processing Entry: Ordered test 2
+				 -->
+                    <entry typeCode="DRIV">
+                        <templateId root="2.16.840.1.113883.3.3731.1.105.3"/>
+                        <act classCode="ACT" moodCode="RQO">
+                            <code code="148043" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" displayName="148043">
+                                <originalText>
+                                    <reference value="#order_test_BC_2-code"/>
+                                </originalText>
+                            </code>
+                            <priorityCode code="R" displayName="Routine" codeSystem="2.16.840.1.113883.5.7">
+                                <originalText>
+                                    <reference value="#order_test_BC_2-prioritycode"/>
+                                </originalText>
+                            </priorityCode>
+                        </act>
+                    </entry>
+                    <!--  
+							Laboratory Order Data Processing Entry: Ordered test 3
+				 -->
+                    <entry typeCode="DRIV">
+                        <templateId root="2.16.840.1.113883.3.3731.1.105.3"/>
+                        <act classCode="ACT" moodCode="RQO">
+                            <code code="147588" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" displayName="147588">
+                                <originalText>
+                                    <reference value="#order_test_BC_3-code"/>
+                                </originalText>
+                            </code>
+                            <priorityCode code="R" displayName="Routine" codeSystem="2.16.840.1.113883.5.7">
+                                <originalText>
+                                    <reference value="#order_test_BC_3-prioritycode"/>
+                                </originalText>
+                            </priorityCode>
+                        </act>
+                    </entry>
+                    <!--  
+							Laboratory Order Data Processing Entry: Ordered test 4
+				 -->
+                    <entry typeCode="DRIV">
+                        <templateId root="2.16.840.1.113883.3.3731.1.105.3"/>
+                        <act classCode="ACT" moodCode="RQO">
+                            <code code="147477" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" displayName="147477">
+                                <originalText>
+                                    <reference value="#order_test_BC_4-code"/>
+                                </originalText>
+                            </code>
+                            <priorityCode code="R" displayName="Routine" codeSystem="2.16.840.1.113883.5.7">
+                                <originalText>
+                                    <reference value="#order_test_BC_4-prioritycode"/>
+                                </originalText>
+                            </priorityCode>
+                        </act>
+                    </entry>
+                    <!--  
+							Laboratory Order Data Processing Entry: Ordered test 5
+				 -->
+                    <entry typeCode="DRIV">
+                        <templateId root="2.16.840.1.113883.3.3731.1.105.3"/>
+                        <act classCode="ACT" moodCode="RQO">
+                            <code code="147595" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" displayName="147595">
+                                <originalText>
+                                    <reference value="#order_test_BC_5-code"/>
+                                </originalText>
+                            </code>
+                            <priorityCode code="R" displayName="Routine" codeSystem="2.16.840.1.113883.5.7">
+                                <originalText>
+                                    <reference value="#order_test_BC_5-prioritycode"/>
+                                </originalText>
+                            </priorityCode>
+                        </act>
+                    </entry>
+                </section>
+            </component>
+            <!-- 
+					=================================================
+					=================================================
+
+					Laboratory Order Specialty section 2: Laboratory Studies
+
+					=================================================
+					=================================================
+			 -->
+            <component>
+                <section>
+                    <templateId root="2.16.840.1.113883.3.3731.1.105.14"/>
+                    <code code="26436-6" displayName="Laboratory Studies" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC"/>
+                    <title>Laboratory Studies</title>
+                    <text>
+                        <paragraph styleCode="Bold">Lab Order</paragraph>
+<br/> Lab order type: Laboratory Studies <br/>
+<paragraph styleCode="Bold">Specimen Procedure</paragraph>
+<br/>
+<list>
+                            <item ID="order_specimen_SR_1-collectiontime">Collection Time: Wed Jan 01 2025 14:15:44 GMT+0300 (Arabian Standard Time)</item>
+                            <item ID="order_specimen_SR_1-type">C-REACTIVE PROTEIN</item>
+                            <item ID="order_specimen_SR_1-source">C-REACTIVE PROTEIN</item>
+                            <item ID="order_specimen_SR_1-collectionmethod"/>
+                            <item ID="order_specimen_SR_1-handling"/>
+                            <item ID="order_specimen_SR_1-risk"/>
+                            <item ID="order_specimen_SR_1-riskcomment"/>
+                        </list>
+<br/>
+<paragraph styleCode="Bold">Laboratory Test(s) Ordered</paragraph>
+<br/>
+<table>
+                            <thead>
+                                <tr>
+                                    <th>Test</th>
+                                    <th>Priority</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td ID="order_test_SR_1-code">30787, 30787</td>
+                                    <td ID="order_test_SR_1-prioritycode">Routine</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </text>
+                    <!--  
+							****************************
+							Specimen Collection 1
+							****************************
+				 -->
+                    <entry typeCode="DRIV">
+                        <procedure classCode="PROC" moodCode="EVN">
+                            <templateId root="2.16.840.1.113883.3.3731.1.105.10"/>
+                            <templateId root="1.3.6.1.4.1.19376.1.3.1.2"/>
+                            <code code="33882-2" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" displayName="Specimen Collection"/>
+                            <!--  Date and time of specimen collection  -->
+                            <effectiveTime value="Wed Jan 01 2025 14:15:44 GMT+0300 (Arabian Standard Time)"/>
+                            <!--  Specimen  -->
+                            <participant typeCode="PRD">
+                                <participantRole classCode="SPEC">
+                                    <id extension="spec1" root="2.16.840.1.113883.3.3731.1.2.2.100.1.1.15000000112242.200.201.202"/>
+                                    <playingEntity>
+                                        <code code="10582" displayName="C-REACTIVE PROTEIN" codeSystem="2.16.840.1.113883.5.129" codeSystemName="Laboratory Specimen Type">
+                                            <originalText>
+                                                <reference value="#order_specimen_SR_1-type"/>
+                                            </originalText>
+                                        </code>
+                                    </playingEntity>
+                                </participantRole>
+                            </participant>
+                        </procedure>
+                    </entry>
+                    <!--  
+							==================================
+							Laboratory Order Data Processing Entry(s)
+							==================================
+				 -->
+                    <!--  
+							Laboratory Order Data Processing Entry: Ordered test 1
+				 -->
+                    <entry typeCode="DRIV">
+                        <templateId root="2.16.840.1.113883.3.3731.1.105.3"/>
+                        <act classCode="ACT" moodCode="RQO">
+                            <code code="30787" codeSystem="2.16.840.1.113883.6.1" codeSystemName="LOINC" displayName="30787">
+                                <originalText>
+                                    <reference value="#order_test_SR_1-code"/>
+                                </originalText>
+                            </code>
+                            <priorityCode code="R" displayName="Routine" codeSystem="2.16.840.1.113883.5.7">
+                                <originalText>
+                                    <reference value="#order_test_SR_1-prioritycode"/>
+                                </originalText>
+                            </priorityCode>
+                        </act>
+                    </entry>
+                </section>
+            </component>
+
+        </structuredBody>
+    </component>
+</ClinicalDocument>

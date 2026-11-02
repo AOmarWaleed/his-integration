@@ -1,0 +1,111 @@
+<component>
+    <section>
+        <templateId root="2.16.840.1.113883.3.3731.1.105.8" />
+        <templateId root="1.3.6.1.4.1.19376.1.3.3.2.1" />
+        <code code="{{DATA.DEPT_LOINC_CODE}}"
+              codeSystem="2.16.840.1.113883.6.1"
+              codeSystemName="LOINC"
+              displayName="{{DATA.DEPT_LOINC_NAME}}" />
+        <title>{{DATA.DEPT_LOINC_NAME}}</title>
+        <text>
+            <paragraph styleCode="Bold">Specimen</paragraph>
+            <br />
+            <list>
+                <item ID="specimen1-collectiontime">Collection Time:{{DATA.SPECIMEN_COLLECTION_TIME_HUMAN_READABLE}}</item>
+                {{DATA.SPECIMEN_TYPE_TAG}}
+                <item ID="specimen1-source" />
+                <item ID="specimen1-collectionmethod" />
+                <item ID="specimen1-handling" />
+                <item ID="specimen1-risk" />
+                <item ID="specimen1-riskcomment" />
+            </list>
+            <br />
+            <paragraph styleCode="Bold">Laboratory Result</paragraph>
+            <br />
+            <table>
+                <thead>
+                    <tr>
+                        <th>Isolate</th>
+                        <th>Method</th>
+                        <th>Result / Bacterial count</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        {{DATA.ORGANISM_ROWS}}
+                    </tr>
+                </tbody>
+            </table>
+            <!-- Antibiogram conditional -->
+            <paragraph>Antibiogram</paragraph>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Active substance</th>
+                        <th>Susceptibility</th>
+                        <th>Minimum inhibitory concentration in mg/L</th>
+                    </tr>
+                </thead>
+                <tfoot>
+                    <tr>
+                        <td>S = Sensible at standard dosage, I = Sensible at higher exposition, R = resistant</td>
+                    </tr>
+                </tfoot>
+                <tbody> {{DATA.SENSITIVITY_ROWS}} </tbody>
+            </table>
+        </text>
+        <!-- 
+==================================
+Laboratory Data Processing Entry
+==================================
+-->
+        <entry typeCode="DRIV">
+            <templateId root="2.16.840.1.113883.3.3731.1.105.9" />
+            <templateId root="1.3.6.1.4.1.19376.1.3.1" />
+            <act classCode="ACT"
+                 moodCode="EVN">
+                <code code="{{DATA.DEPT_LOINC_CODE}}"
+                      codeSystem="2.16.840.1.113883.6.1"
+                      codeSystemName="LOINC"
+                      displayName="{{DATA.DEPT_LOINC_NAME}}" />
+                <statusCode code="{{DATA.LAB_STATUS}}" />
+                <!-- Isolate Organizer -->
+                <entryRelationship typeCode="COMP">
+                    <organizer classCode="CLUSTER"
+                               moodCode="EVN">
+                        <templateId root="2.16.840.1.113883.3.3731.1.105.17" />
+                        <templateId root="1.3.6.1.4.1.19376.1.3.1.5" />
+                        <statusCode code="{{DATA.LAB_STATUS}}" />
+                         {{DATA.ORGANISM_COMPONENTS}} 
+                            <!-- Antibiogram conditional -->
+                        <component typeCode="COMP">
+                            <organizer classCode="BATTERY"
+                                    moodCode="EVN">
+                                <templateId root="2.16.840.1.113883.3.3731.1.105.19" />
+                                <templateId root="1.3.6.1.4.1.19376.1.3.1.4" />
+                                <code code="29576-6"
+                                    codeSystem="2.16.840.1.113883.6.1"
+                                    codeSystemName="LOINC"
+                                    displayName="Bacterial susceptibility panel" />
+                                <statusCode code="{{DATA.LAB_STATUS}}" /> {{DATA.SENSITIVITY_COMPONENTS}} </organizer>
+                        </component>
+                    </organizer>
+                </entryRelationship>
+            </act>
+        </entry>
+        <!-- Laboratory Order Entries -->
+        <entry typeCode="DRIV">
+            <templateId root="2.16.840.1.113883.3.3731.1.105.3" />
+            <act classCode="ACT"
+                 moodCode="RQO">
+                <code code="{{DATA.DEPT_LOINC_CODE}}"
+                      codeSystem="2.16.840.1.113883.6.1"
+                      codeSystemName="LOINC"
+                      displayName="{{DATA.DEPT_LOINC_NAME}}" />
+                <priorityCode code="R"
+                              codeSystem="2.16.840.1.113883.5.7"
+                              displayName="Routine" />
+            </act>
+        </entry>
+    </section>
+</component>

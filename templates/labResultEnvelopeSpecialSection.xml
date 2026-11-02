@@ -1,0 +1,45 @@
+<!-- Document Metadata element: eventCodeList[1]: Specialty code 1 -->
+<rim:Classification classificationScheme="urn:uuid:2c6b8cb7-8b2a-4051-b291-b1ae6a575ef4" classifiedObject="urn:uuid:c704075c-f5f3-4161-a73f-33441987a06e" id="cl07" nodeRepresentation="{{DATA.DEPT_LOINC_CODE}}">
+    <rim:Slot name="codingScheme">
+        <rim:ValueList>
+            <rim:Value>2.16.840.1.113883.6.1</rim:Value>
+        </rim:ValueList>
+    </rim:Slot>
+    <rim:Name>
+        <rim:LocalizedString value="{{DATA.DEPT_LOINC_NAME}}"/>
+    </rim:Name>
+</rim:Classification>
+<!-- Document Metadata element: eventCodeList[3]: Battery code 1 -->
+<rim:Classification classificationScheme="urn:uuid:2c6b8cb7-8b2a-4051-b291-b1ae6a575ef4" classifiedObject="urn:uuid:c704075c-f5f3-4161-a73f-33441987a06e" id="cl09" nodeRepresentation="{{DATA.BATTERY_CODE}}">
+    <rim:Slot name="codingScheme">
+        <rim:ValueList>
+            <rim:Value>2.16.840.1.113883.6.1</rim:Value>
+        </rim:ValueList>
+    </rim:Slot>
+    <rim:Name>
+        <rim:LocalizedString value="{{DATA.BATTERY_DESCRIPTION}}"/>
+    </rim:Name>
+</rim:Classification>
+<!-- Document Metadata element: serviceStartTime (in UTC time) -->
+<rim:Slot name="serviceStartTime">
+    <rim:ValueList>
+        <rim:Value>{{DATA.CURRENT_DATE_TIME}}</rim:Value>
+    </rim:ValueList>
+</rim:Slot>
+<!-- Document Metadata element: serviceStopTime (in UTC time) -->
+<rim:Slot name="serviceStopTime">
+    <rim:ValueList>
+        <rim:Value>{{DATA.SERVICE_STOP_TIME}}</rim:Value>
+    </rim:ValueList>
+</rim:Slot>
+<!-- Document Metadata element: eventCodeList[1]: ServiceEvent[1]: Order status -->
+<rim:Classification classificationScheme="urn:uuid:2c6b8cb7-8b2a-4051-b291-b1ae6a575ef4" classifiedObject="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}" id="cl07a" nodeRepresentation="{{DATA.ORDER_STATUS_CODE}}">
+    <rim:Slot name="codingScheme">
+        <rim:ValueList>
+            <rim:Value>2.16.840.1.113883.5.14</rim:Value>
+        </rim:ValueList>
+    </rim:Slot>
+    <rim:Name>
+        <rim:LocalizedString value="{{DATA.ORDER_STATUS_DISPLAY}}"/>
+    </rim:Name>
+</rim:Classification>

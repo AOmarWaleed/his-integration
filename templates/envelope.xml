@@ -1,0 +1,295 @@
+<soap:Envelope xmlns="urn:ihe:iti:xds-b:2007" xmlns:lcm="urn:oasis:names:tc:ebxml-regrep:xsd:lcm:3.0" xmlns:rim="urn:oasis:names:tc:ebxml-regrep:xsd:rim:3.0" xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:addressing="http://www.w3.org/2005/08/addressing" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<soap:Header>
+		<addressing:MessageID>urn:uuid:{{DATA.MESSAGE_ID}}</addressing:MessageID>
+		<addressing:To>https://repository.com/service/xdsrepository</addressing:To>
+		<addressing:Action>urn:oasis:names:tc:ebxml-regrep:xsd:lcm:3.0:xdsrepositoryb:ProvideAndRegisterDocumentSetRequest</addressing:Action>
+	</soap:Header>
+	<soap:Body>
+		<ProvideAndRegisterDocumentSetRequest xmlns:xdsb="urn:ihe:iti:xds-b:2007">
+			<lcm:SubmitObjectsRequest>
+				<rim:RegistryObjectList>
+					<rim:Classification classificationNode="urn:uuid:a54d6aa5-d40d-43f9-88c5-b4633d873bdd" classifiedObject="urn:uuid:{{DATA.SUBMISSION_SET_ID}}" id="cl11"/>
+					<!-- 
+							======================================
+							Document 1 of 1 in this submission
+							======================================
+					-->
+					<rim:ExtrinsicObject home="urn:oid:1.3.6.1.4.1.21367.2005.3.7" id="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}" mimeType="text/xml" objectType="urn:uuid:7edca82f-054d-47f2-a032-9b2a5b5186c1" status="urn:oasis:names:tc:ebxml-regrep:StatusType:Approved">
+						<!-- 
+								*************************************************************
+								Document Metadata elements
+
+								Important: The order of sub-elements has to be:
+									rim:Slot(s)
+									rim:Name
+									rim:Description
+									rim:Classification(s)
+									rim:ExternalIdentifier(s)
+								*************************************************************
+						-->
+						<!-- Document Metadata element: creationTime (in UTC time) -->
+						<rim:Slot name="creationTime">
+							<rim:ValueList>
+								<rim:Value>{{DATA.CREATION_DATE}}</rim:Value>
+							</rim:ValueList>
+						</rim:Slot>
+						<!-- Document Metadata element: hash -->
+						<rim:Slot name="hash">
+							<rim:ValueList>
+								<rim:Value>{{DATA.CDA_HASH}}</rim:Value>
+							</rim:ValueList>
+						</rim:Slot>
+						<!-- Document Metadata element: size -->
+						<rim:Slot name="size">
+							<rim:ValueList>
+								<rim:Value>{{DATA.CDA_SIZE}}</rim:Value>
+							</rim:ValueList>
+						</rim:Slot>
+						<!-- Document Metadata element: languageCode -->
+						<rim:Slot name="languageCode">
+							<rim:ValueList>
+								<rim:Value>ar-SA</rim:Value>
+							</rim:ValueList>
+						</rim:Slot>
+						<!-- Document Metadata element: referenceIdList -->
+						<rim:Slot name="urn:ihe:iti:xds:2013:referenceIdList">
+							<rim:ValueList>
+					{{DATA.REFERENCE_ID_LIST_1}}
+					{{DATA.REFERENCE_ID_LIST_2}}
+					{{DATA.REFERENCE_ID_LIST_3}}
+
+							</rim:ValueList>
+						</rim:Slot>
+						<!-- Document Metadata element: sourcePatientId -->
+						<rim:Slot name="sourcePatientId">
+							<rim:ValueList>
+								<rim:Value>{{DATA.PATIENT.HEALTH_ID}}^^^&amp;2.16.840.1.113883.3.3731.1.1.100.1&amp;ISO</rim:Value>
+							</rim:ValueList>
+						</rim:Slot>
+						<!-- Document Metadata element: title -->
+						<rim:Name>
+							<rim:LocalizedString value="{{DATA.DOC_TITLE}}"/>
+						</rim:Name>
+						<!-- Document Metadata element: comments -->
+						<rim:Description>
+							<rim:LocalizedString value="Any additional comment"/>
+						</rim:Description>
+						<!-- Document Metadata element: author -->
+						<rim:Classification classificationScheme="urn:uuid:93606bcf-9494-43ec-9b4e-a7748d1a838d" classifiedObject="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}" id="cl01">
+							<!-- sub-element: authorPerson -->
+							<rim:Slot name="authorPerson">
+								<rim:ValueList>
+									<rim:Value>{{DATA.PHYSICIAN.IDENTIFIER_NO}}^{{DATA.PHYSICIAN.LAST_NAME}}^{{DATA.PHYSICIAN.FIRST_NAME}}^^^{{DATA.PHYSICIAN.TITLE}}.^^^&amp;2.16.840.1.113883.3.3731.1.2.1&amp;ISO</rim:Value>
+								</rim:ValueList>
+							</rim:Slot>
+							<!-- sub-element: authorInstitution -->
+							<rim:Slot name="authorInstitution">
+								<rim:ValueList>
+									<rim:Value>{{DATA.FACILITY.name}}^^^^^&amp;2.16.840.1.113883.3.3731.1.2.2&amp;ISO^^^^{{DATA.FACILITY.NPHIES_CS_ORG_ID}}</rim:Value>
+								</rim:ValueList>
+							</rim:Slot>
+							<!-- sub-element: authorRole -->
+							<rim:Slot name="authorRole">
+								<rim:ValueList>
+									<rim:Value>Medicine and Surgery</rim:Value>
+								</rim:ValueList>
+							</rim:Slot>
+							<!-- sub-element: authorSpecialty -->
+							<rim:Slot name="authorSpecialty">
+								<rim:ValueList>
+									<rim:Value>{{DATA.HEALTH_DISPLAY_NAME}}</rim:Value>
+								</rim:ValueList>
+							</rim:Slot>
+						</rim:Classification>
+						<!-- Document Metadata element: classCode -->
+						<rim:Classification classificationScheme="urn:uuid:41a5887f-8865-4c09-adf7-e362475b143a" classifiedObject="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}" id="cl02" nodeRepresentation="{{DATA.CLASS_CODE_UPPER_CASE}}">
+							<rim:Slot name="codingScheme">
+								<rim:ValueList>
+									<rim:Value>2.16.840.1.113883.3.3731.1.203.10</rim:Value>
+								</rim:ValueList>
+							</rim:Slot>
+							<rim:Name>
+								<rim:LocalizedString value="{{DATA.CLASS_CODE}}"/>
+							</rim:Name>
+						</rim:Classification>
+						<!-- Document Metadata element: confidentialityCode -->
+						<rim:Classification classificationScheme="urn:uuid:f4f85eac-e6cb-4883-b524-f2705394840f" classifiedObject="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}" id="cl03" nodeRepresentation="N">
+							<rim:Slot name="codingScheme">
+								<rim:ValueList>
+									<rim:Value>2.16.840.1.113883.5.25</rim:Value>
+								</rim:ValueList>
+							</rim:Slot>
+							<rim:Name>
+								<rim:LocalizedString value="normal"/>
+							</rim:Name>
+						</rim:Classification>
+						<!-- Document Metadata element: formatCode -->
+						<rim:Classification classificationScheme="urn:uuid:a09d5840-386c-46f2-b5ad-9c3699a4309d" classifiedObject="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}" id="cl04" nodeRepresentation="{{DATA.FORMAT_CODE}}">
+							<rim:Slot name="codingScheme">
+								<rim:ValueList>
+									<rim:Value>{{DATA.FORMAT_CODE_SCHEMA}}</rim:Value>
+								</rim:ValueList>
+							</rim:Slot>
+							<rim:Name>
+								<rim:LocalizedString value="{{DATA.FORMAT_CODE_DISPLAY}}"/>
+							</rim:Name>
+						</rim:Classification>
+						<!-- Document Metadata element: healthcareFacilityTypeCode -->
+						<rim:Classification classificationScheme="urn:uuid:f33fb8ac-18af-42cc-ae0e-ed0b0bdb91e1" classifiedObject="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}" id="cl05" nodeRepresentation="{{DATA.HEALTHCARE_FACILITY_TYPE_CODE}}">
+							<rim:Slot name="codingScheme">
+								<rim:ValueList>
+									<rim:Value>2.16.840.1.113883.3.3731.1.202.2</rim:Value>
+								</rim:ValueList>
+							</rim:Slot>
+							<rim:Name>
+								<rim:LocalizedString value="{{DATA.HEALTHCARE_FACILITY_TYPE_DISPLAY}}"/>
+							</rim:Name>
+						</rim:Classification>
+						<!-- Document Metadata element: practiceSettingCode -->
+						<rim:Classification classificationScheme="urn:uuid:cccf5598-8b07-4b77-a05e-ae952c785ead" classifiedObject="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}" id="cl06" nodeRepresentation="{{DATA.PRACTICE_SETTING_CODE}}">
+							<rim:Slot name="codingScheme">
+								<rim:ValueList>
+									<rim:Value>2.16.840.1.113883.3.3731.1.202.6</rim:Value>
+								</rim:ValueList>
+							</rim:Slot>
+							<rim:Name>
+								<rim:LocalizedString value="{{DATA.PRACTICE_SETTING_DISPLAY}}"/>
+							</rim:Name>
+						</rim:Classification>
+						<!-- Document Specific Section -->
+						{{DATA.ENVELOPE_SPECIAL_SECTION}}
+						<!-- Document Metadata element: typeCode -->
+						<rim:Classification classificationScheme="urn:uuid:f0306f51-975f-434e-a61c-c59651d33983" classifiedObject="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}" id="cl10" nodeRepresentation="{{DATA.CODE}}">
+							<rim:Slot name="codingScheme">
+								<rim:ValueList>
+									<rim:Value>2.16.840.1.113883.6.1</rim:Value>
+								</rim:ValueList>
+							</rim:Slot>
+							<rim:Name>
+								<rim:LocalizedString value="Prescription for diagnostic or specialist care"/>
+							</rim:Name>
+						</rim:Classification>
+						<!-- Document Metadata element: patientId -->
+						<rim:ExternalIdentifier id="ei01" identificationScheme="urn:uuid:58a6f841-87b3-4a3e-92fd-a8ffeff98427" registryObject="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}" value="{{DATA.PATIENT.HEALTH_ID}}^^^&amp;2.16.840.1.113883.3.3731.1.1.100.1&amp;ISO">
+							<rim:Name>
+								<rim:LocalizedString value="XDSDocumentEntry.patientId"/>
+							</rim:Name>
+						</rim:ExternalIdentifier>
+						<!-- Document Metadata element: uniqueId -->
+						<rim:ExternalIdentifier id="ei03" identificationScheme="urn:uuid:2e82c1f6-a085-4c72-9da3-8640a32e42ab" registryObject="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}" value="{{DATA.FULL_ORG_ID}}{{DATA.SET_ID}}^{{DATA.PREFIX}}S-{{DATA.ORDER_LINE}}">
+							<rim:Name>
+								<rim:LocalizedString value="XDSDocumentEntry.uniqueId"/>
+							</rim:Name>
+						</rim:ExternalIdentifier>
+					</rim:ExtrinsicObject>
+					<!-- 
+							======================================
+							SubmissionSet
+							======================================
+					-->
+					<rim:RegistryPackage home="urn:oid:1.3.6.1.4.1.21367.2005.3.7" id="urn:uuid:{{DATA.SUBMISSION_SET_ID}}" objectType="urn:oasis:names:tc:ebxmlregrep:ObjectType:RegistryObject:RegistryPackage" status="urn:oasis:names:tc:ebxml-regrep:StatusType:Approved">
+						<!-- 
+								*************************************************************
+								SubmissionSet Metadata elements
+
+								Important: The order of sub-elements has to be:
+									rim:Slot(s)
+									rim:Name
+									rim:Description
+									rim:Classification(s)
+									rim:ExternalIdentifier(s)
+								*************************************************************
+						-->
+						<!-- SubmissionSet Metadata element: submissionTime (in UTC time) -->
+						<rim:Slot name="submissionTime">
+							<rim:ValueList>
+								<rim:Value>{{DATA.SUBMISSION_TIME}}</rim:Value>
+							</rim:ValueList>
+						</rim:Slot>
+						<!-- SubmissionSet Metadata element: title -->
+						<rim:Name>
+							<rim:LocalizedString value="{{DATA.DOC_TITLE}}"/>
+						</rim:Name>
+						<!-- SubmissionSet Metadata element: comment -->
+						<rim:Description>
+							<rim:LocalizedString value="{{DATA.DOC_TITLE}}"/>
+						</rim:Description>
+						<!-- SubmissionSet Metadata element: author -->
+						<rim:Classification classificationScheme="urn:uuid:a7058bb9-b4e4-4307-ba5b-e3f0ab85e12d" classifiedObject="urn:uuid:{{DATA.SUBMISSION_SET_ID}}" id="cl08">
+							<!-- sub-element: authorPerson -->
+							<rim:Slot name="authorPerson">
+								<rim:ValueList>
+									<rim:Value>{{DATA.PHYSICIAN.IDENTIFIER_NO}}^{{DATA.PHYSICIAN.LAST_NAME}}^{{DATA.PHYSICIAN.FIRST_NAME}}^^^Dr.^^^&amp;2.16.840.1.113883.3.3731.1.2.1&amp;ISO</rim:Value>
+								</rim:ValueList>
+							</rim:Slot>
+							<!-- sub-element: authorInstitution -->
+							<rim:Slot name="authorInstitution">
+								<rim:ValueList>
+									<rim:Value>{{DATA.FACILITY.name}}^^^^^&amp;2.16.840.1.113883.3.3731.1.2.2&amp;ISO^^^^{{DATA.FACILITY.NPHIES_CS_ORG_ID}}</rim:Value>
+								</rim:ValueList>
+							</rim:Slot>
+							<!-- sub-element: authorRole -->
+							<rim:Slot name="authorRole">
+								<rim:ValueList>
+									<rim:Value>Medicine and Surgery</rim:Value>
+								</rim:ValueList>
+							</rim:Slot>
+							<!-- sub-element: authorSpecialty -->
+							<rim:Slot name="authorSpecialty">
+								<rim:ValueList>
+									<rim:Value>{{DATA.HEALTH_DISPLAY_NAME}}</rim:Value>
+								</rim:ValueList>
+							</rim:Slot>
+						</rim:Classification>
+						<!-- SubmissionSet Metadata element: contentTypeCode -->
+						<rim:Classification classificationScheme="urn:uuid:aa543740-bdda-424e-8c96-df4873be8500" classifiedObject="urn:uuid:{{DATA.SUBMISSION_SET_ID}}" id="cl09" nodeRepresentation="DIAGNOSIS-STUDY">
+							<rim:Slot name="codingScheme">
+								<rim:ValueList>
+									<rim:Value>2.16.840.1.113883.3.3731.1.203.16</rim:Value>
+								</rim:ValueList>
+							</rim:Slot>
+							<rim:Name>
+								<rim:LocalizedString value="Laboratory, imaging, and other studies"/>
+							</rim:Name>
+						</rim:Classification>
+						<!-- SubmissionSet Metadata element: uniqueId -->
+						<rim:ExternalIdentifier id="ei03" identificationScheme="urn:uuid:96fdda7c-d067-4183-912e-bf5ee74998a8" registryObject="urn:uuid:{{DATA.SUBMISSION_SET_ID}}" value="{{DATA.SUBMISSION_SET_UNIQUE_ID}}">
+							<rim:Name>
+								<rim:LocalizedString value="XDSSubmissionSet.uniqueId"/>
+							</rim:Name>
+						</rim:ExternalIdentifier>
+						<!-- SubmissionSet Metadata element: sourceId -->
+						<rim:ExternalIdentifier id="ei04" identificationScheme="urn:uuid:554ac39e-e3fe-47fe-b233-965d2a147832" registryObject="urn:uuid:{{DATA.SUBMISSION_SET_ID}}" value="{{DATA.SUBMISSION_SET_SOURCE_ID}}">
+							<rim:Name>
+								<rim:LocalizedString value="XDSSubmissionSet.sourceId"/>
+							</rim:Name>
+						</rim:ExternalIdentifier>
+						<!-- SubmissionSet Metadata element: patientId -->
+						<rim:ExternalIdentifier id="ei05" identificationScheme="urn:uuid:6b5aea1a-874d-4603-a4bc-96a0a7b38446" registryObject="urn:uuid:{{DATA.SUBMISSION_SET_ID}}" value="{{DATA.PATIENT.HEALTH_ID}}^^^&amp;2.16.840.1.113883.3.3731.1.1.100.1&amp;ISO">
+							<rim:Name>
+								<rim:LocalizedString value="XDSSubmissionSet.patientId"/>
+							</rim:Name>
+						</rim:ExternalIdentifier>
+					</rim:RegistryPackage>
+					<!-- 
+							======================================
+							Association: links the document to the SubmissionSet
+								targetObject (the document) =
+					rim:ExtrinsicObject[@id='urn:uuid:c704075c-f5f3-4161-a73f-33441987a06e']
+							======================================
+					-->
+					<rim:Association associationType="HasMember" id="as01" sourceObject="urn:uuid:{{DATA.SUBMISSION_SET_ID}}" targetObject="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}">
+						<rim:Slot name="SubmissionSetStatus">
+							<rim:ValueList>
+								<rim:Value>Original</rim:Value>
+							</rim:ValueList>
+						</rim:Slot>
+					</rim:Association>
+					<!-- targetObject is the old document ID -->
+					{{DATA.REPLACE_ASSOCIATIONS}}		
+				</rim:RegistryObjectList>
+			</lcm:SubmitObjectsRequest>
+			<Document id="urn:uuid:{{DATA.DOCUMENT_ENTRY_ID}}">{{DATA.BASE64_CDA}}</Document>
+		</ProvideAndRegisterDocumentSetRequest>
+	</soap:Body>
+</soap:Envelope>

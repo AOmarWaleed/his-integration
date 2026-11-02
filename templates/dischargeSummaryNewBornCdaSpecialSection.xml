@@ -1,0 +1,32 @@
+<!--
+					=================================================
+					Section: Newborn Screening Coded Results Section
+
+						This variant of the Coded Results Section contains Newborn Screening Diagnostic Test Results.
+					=================================================
+			-->
+<component>
+    <section>
+        <templateId root="2.16.840.1.113883.3.3731.1.210.100.27"/>
+        <code code="30954-2"
+					      displayName="STUDIES SUMMARY"
+					      codeSystem="2.16.840.1.113883.6.1"
+					      codeSystemName="LOINC"/>
+        <title>Newborn Screening Test Results</title>
+        <text>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Test</th>
+                        <th>Value</th>
+                        <th>Date/Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+					{{DATA.NEWBORN_SCREENING_TEST_RESULTS_ROWS}}
+                </tbody>
+            </table>
+        </text>
+	    {{DATA.NEWBORN_SCREENING_TEST_RESULTS_ENTRIES}}
+    </section>
+</component>
