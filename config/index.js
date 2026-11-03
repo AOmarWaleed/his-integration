@@ -45,6 +45,12 @@ export const config = {
     connectString: `${process.env.HIS_DB_HOST}:${process.env.HIS_DB_PORT}/${process.env.HIS_DB_DATABASE}`,
     poolTimeout: parseInteger(process.env.ORACLE_POOL_TIMEOUT, 60),
     queueTimeout: parseInteger(process.env.ORACLE_QUEUE_TIMEOUT, 60000),
+    // Bound the physical TCP/Oracle handshake (seconds). Without it a hung
+    // connect blocks new connections in the pool and every acquire times out.
+    connectTimeout: parseInteger(process.env.ORACLE_CONNECT_TIMEOUT, 20),
+    // -1 disables pool pings (they have no timeout in thick mode and can block
+    // getConnection()); connections are validated by the SELECT 1 FROM DUAL check.
+    poolPingInterval: parseInteger(process.env.ORACLE_POOL_PING_INTERVAL, -1),
     sharedPoolMin: parseInteger(process.env.ORACLE_SHARED_POOL_MIN, 0),
     sharedPoolMax: parseInteger(process.env.ORACLE_SHARED_POOL_MAX, 6),
     sharedPoolIncrement: parseInteger(process.env.ORACLE_SHARED_POOL_INCREMENT, 1),

@@ -577,6 +577,8 @@ export async function initOraclePool({
   poolIncrement,
   poolTimeout = conf.poolTimeout || 60,
   queueTimeout = conf.queueTimeout || 60000,
+  connectTimeout = conf.connectTimeout ?? 20,
+  poolPingInterval = conf.poolPingInterval ?? -1,
   userParam,
   passwordParam,
   connectStringParam,
@@ -599,6 +601,13 @@ export async function initOraclePool({
   const resolvedPoolTimeout = Number.isFinite(poolTimeout) && poolTimeout > 0
     ? poolTimeout
     : 60;
+  const resolvedConnectTimeout =
+    Number.isInteger(connectTimeout) && connectTimeout >= 0
+      ? connectTimeout
+      : 20;
+  const resolvedPoolPingInterval = Number.isInteger(poolPingInterval)
+    ? poolPingInterval
+    : -1;
 
   ensureMetricEntry(poolKey);
 
@@ -630,7 +639,17 @@ export async function initOraclePool({
         poolIncrement: resolvedPoolIncrement,
         poolTimeout: resolvedPoolTimeout,
         queueTimeout: resolvedQueueTimeout,
-        poolPingInterval: 30,
+        // Pings are disabled by default: in thick mode the pool ping has no
+        // timeout, so a dead idle session blocks getConnection() until the
+        // OS-level TCP timeout. That is the cause of
+        // "Pool getConnection timeout after 45000ms" while
+        // connectionsOpen < poolMax and nothing else is broken.
+        // acquireAndValidateOnce() already validates every handed-out
+        // connection with a bounded SELECT 1 FROM DUAL (VALIDATION_TIMEOUT_MS).
+        poolPingInterval: resolvedPoolPingInterval,
+        // Bound the physical connect so a hung handshake can never hold a pool
+        // creation slot open forever.
+        connectTimeout: resolvedConnectTimeout,
         enableStatistics: true,
       })
       .then((pool) => {
@@ -647,6 +666,8 @@ export async function initOraclePool({
             queueTimeout: resolvedQueueTimeout,
             poolTimeout: resolvedPoolTimeout,
             connectString: connectStringParam || conf.connectString,
+            connectTimeout: resolvedConnectTimeout,
+            poolPingInterval: resolvedPoolPingInterval,
           },
         );
         return pool;
@@ -725,7 +746,11 @@ async function acquireAndValidateOnce(settings = {}, acquireTimeout = 45000) {
         acquirePromise,
         new Promise((_, reject) => {
           timeoutId = setTimeout(() => {
-            const stats = getPoolStatistics(settings);
+            // Use the pool instance this request is actually queued on. If the
+            // pool was recreated in the meantime, getPoolStatistics() would
+            // report the stats of the (idle) replacement pool and hide the fact
+            // that the request was stuck on the retired one.
+            const stats = mapPoolStatistics(pool);
             const timeoutError = new Error(
               `Pool getConnection timeout after ${acquireTimeout}ms. ` +
                 `Pool stats: connectionsInUse=${stats?.connectionsInUse}, ` +
