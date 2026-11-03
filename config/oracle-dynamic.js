@@ -75,6 +75,49 @@ let pendingPoolRecreations = {};
 let waitingCounters = {};
 
 /**
+ * Tracks where each pending acquire is stuck per pool key: pool initialization,
+ * pool recreation, the native getConnection() call, or the validation query.
+ * "Pool getConnection timeout after 45000ms" cannot tell them apart, and the
+ * thick client cannot cancel a blocked native call, so this is the only way to
+ * see where the wait is really spent.
+ * @type {Map<string, Record<string, number>>}
+ */
+const stageCounters = new Map();
+
+function enterStage(poolKey, stage) {
+  const counts = stageCounters.get(poolKey) || {};
+  counts[stage] = (counts[stage] || 0) + 1;
+  stageCounters.set(poolKey, counts);
+  return () => {
+    counts[stage] = Math.max((counts[stage] || 1) - 1, 0);
+  };
+}
+
+function snapshotStages(poolKey) {
+  return { ...(stageCounters.get(poolKey) || {}) };
+}
+
+/**
+ * Reject when `promise` has not settled within `ms`.
+ * Used for steps the thick Oracle client cannot cancel (pool creation, native
+ * connect) so one hung call cannot freeze every caller of the pool.
+ */
+function raceWithDeadline(promise, ms, code, message, extra) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error(message);
+      err.code = code;
+      if (extra) {
+        err.diagnostics = extra;
+      }
+      reject(err);
+    }, ms);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
+/**
  * Rolling stats per poolKey. Useful to diagnose contention over time.
  * Structure: poolMetrics[poolKey] = {
  *   totalAcquired, totalReleased, totalTimeouts, totalErrors,
@@ -706,12 +749,41 @@ async function acquireAndValidateOnce(settings = {}, acquireTimeout = 45000) {
   const metrics = ensureMetricEntry(poolKey);
 
   if (pendingPoolRecreations[poolKey]) {
-    await pendingPoolRecreations[poolKey];
+    const leaveRecreateStage = enterStage(poolKey, "recreate-wait");
+    try {
+      await pendingPoolRecreations[poolKey];
+    } finally {
+      leaveRecreateStage();
+    }
   }
 
   if (!pools[poolKey]) {
     oracleLogger.debug(`Shared pool not initialized for ${poolKey}, creating now...`);
-    await initOraclePool(settings);
+    const leaveInitStage = enterStage(poolKey, "pool-init");
+    let initTimedOut = false;
+    try {
+      // createPool() with poolMin > 0 performs real logons and the thick client
+      // has no connect timeout, so without a deadline an unresponsive HIS
+      // database would keep every caller of this pool waiting forever.
+      await raceWithDeadline(
+        initOraclePool(settings),
+        acquireTimeout,
+        "POOL_INIT_TIMEOUT",
+        `Oracle pool initialization timed out after ${acquireTimeout}ms for ${poolKey}`,
+        snapshotStages(poolKey),
+      );
+    } catch (initError) {
+      initTimedOut = initError?.code === "POOL_INIT_TIMEOUT";
+      throw initError;
+    } finally {
+      leaveInitStage();
+      if (initTimedOut) {
+        // The native createPool() may never settle. Drop the stale in-flight
+        // promise so the next attempt starts a fresh pool instead of waiting on
+        // the same hung initialization for the rest of the process lifetime.
+        delete pendingPoolInitializations[poolKey];
+      }
+    }
   }
 
   const acquireStartedAt = Date.now();
@@ -740,6 +812,7 @@ async function acquireAndValidateOnce(settings = {}, acquireTimeout = 45000) {
     let timeoutId;
     let connection;
     let acquirePromise = null;
+    const leaveAcquireStage = enterStage(poolKey, "getConnection");
     try {
       acquirePromise = pool.getConnection();
       connection = await Promise.race([
@@ -755,12 +828,14 @@ async function acquireAndValidateOnce(settings = {}, acquireTimeout = 45000) {
               `Pool getConnection timeout after ${acquireTimeout}ms. ` +
                 `Pool stats: connectionsInUse=${stats?.connectionsInUse}, ` +
                 `connectionsOpen=${stats?.connectionsOpen}, ` +
-                `poolMax=${stats?.poolMax}, waiting=${waitingCounters[poolKey]}`,
+                `poolMax=${stats?.poolMax}, waiting=${waitingCounters[poolKey]}, ` +
+                `stages=${JSON.stringify(snapshotStages(poolKey))}`,
             );
             timeoutError.code = "POOL_ACQUIRE_TIMEOUT";
             timeoutError.diagnostics = {
               poolKey,
               stats,
+              stages: snapshotStages(poolKey),
               waiting: waitingCounters[poolKey],
               metrics: { ...metrics },
             };
@@ -793,6 +868,7 @@ async function acquireAndValidateOnce(settings = {}, acquireTimeout = 45000) {
       throw error;
     } finally {
       clearTimeout(timeoutId);
+      leaveAcquireStage();
     }
 
     const acquireMs = Date.now() - acquireStartedAt;
@@ -800,6 +876,7 @@ async function acquireAndValidateOnce(settings = {}, acquireTimeout = 45000) {
 
     // Dummy query validation before the job starts: SELECT 1 FROM DUAL
     let isValid = false;
+    const leaveValidateStage = enterStage(poolKey, "validate");
     try {
       isValid = await validateConnectionWithDummyQuery(connection, VALIDATION_TIMEOUT_MS);
     } catch (validationError) {
@@ -812,6 +889,8 @@ async function acquireAndValidateOnce(settings = {}, acquireTimeout = 45000) {
       await safeCloseConnection(connection, { drop: true, poolKey });
       validationError.isValidationFailure = true;
       throw validationError;
+    } finally {
+      leaveValidateStage();
     }
 
     if (!isValid) {
@@ -914,12 +993,23 @@ export async function getOracleConnection(
         /NJS-040/i.test(error?.message || "");
       const isConnOrPoolErr = isOracleConnectionOrPoolError(error);
 
-      if (attempt >= maxRetries || (!isValidationFail && !isConnOrPoolErr)) {
+      // Each hung native acquire costs a full acquireTimeout (45s). Retrying it
+      // four times keeps a cron job stalled for minutes while piling even more
+      // waiters onto a native layer that is already stuck, so an acquire timeout
+      // gets a single retry.
+      const acquireTimeoutExhausted = isAcquireTimeout && attempt >= 1;
+
+      if (
+        attempt >= maxRetries ||
+        acquireTimeoutExhausted ||
+        (!isValidationFail && !isConnOrPoolErr)
+      ) {
         oracleLogger.error("Failed to get Oracle connection after retries", {
           poolKey,
           attempt: attempt + 1,
           maxAttempts: maxRetries + 1,
           waiting: waitingCounters[poolKey] || 0,
+          stages: snapshotStages(poolKey),
           poolStats: stats,
           metrics: { ...metrics },
           error: formatErrorForLogs(error),
@@ -970,6 +1060,7 @@ export async function getOracleConnection(
           attempt: attempt + 1,
           delayMs,
           shouldRecreatePool,
+          stages: snapshotStages(poolKey),
           poolStats: stats,
           error: error.message,
         },
