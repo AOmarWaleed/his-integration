@@ -1,257 +1,73 @@
 // config/oracle-dynamic.js
+if (!process.env.UV_THREADPOOL_SIZE) {
+  process.env.UV_THREADPOOL_SIZE = "64";
+}
+
 import oracle from "oracledb";
 import { config } from "./index.js";
 import { oracleLogger } from "./logger.js";
-import { formatErrorForLogs } from "@givc/shared-backend";
-import { query, queryWithRetry } from "./pgDB.js";
+import { queryWithRetry } from "./pgDB.js";
 
 const conf = config.oracle || {};
 
 /**
- * Default retry / validation configuration for Oracle pool & connections.
- */
-const DEFAULT_MAX_RETRIES = 4;
-const DEFAULT_BASE_BACKOFF_MS = 2000;
-const DEFAULT_MAX_BACKOFF_MS = 20000;
-const VALIDATION_TIMEOUT_MS = 5000;
-
-/**
- * How long to wait before the first close attempt on a retired pool.
- * Gives in-flight `getConnection()` requests time to resolve so we do not
- * close a pool while a connection is being handed out.
- */
-const RETIRED_POOL_INITIAL_DELAY_MS = 2000;
-
-/** How often to re-check a retired pool for checked-out connections. */
-const RETIRED_POOL_POLL_MS = 5000;
-
-/**
- * Hard upper bound on how long a retired pool may keep sessions open.
- * Jobs are capped at 20 minutes (MAX_JOB_EXECUTION_MS), so this gives a
- * generous buffer before force-closing a leaked connection.
- */
-const RETIRED_POOL_MAX_GRACE_MS = 25 * 60 * 1000;
-
-/**
- * All live pools, keyed by poolKey.
- * One shared pool is created lazily per facility when the first job/request
- * for that facility runs, and reused by all subsequent jobs for the same facility.
+ * All active Oracle connection pools, keyed by poolKey (e.g., "facility:<facilityId>").
+ * Exactly one pool is created per facility upon the first job/request, and remains
+ * open and reused for all subsequent jobs until explicitly closed on application shutdown
+ * or recreated upon an unrecoverable timeout/error.
+ *
  * @type {Record<string, oracle.Pool>}
  */
 let pools = {};
 
 /**
- * Pools that have been replaced and are waiting to be closed safely.
- * They are detached from `pools` immediately (so new work uses the fresh pool)
- * but are NOT closed until every connection checked out from them is returned.
- * Force-closing a pool with connections in use is what produced
- * `NJS-003: invalid or closed connection / DPI-1010: not connected` mid-job.
- *
- * Structure: retiredPools[poolKey] = Set<{ pool, reason, retiredAt, timer, closed }>
- * @type {Map<string, Set<object>>}
- */
-const retiredPools = new Map();
-
-/**
- * Pools currently being initialized (mutex per poolKey so concurrent jobs
- * for the same facility wait on the same creation promise).
+ * In-flight pool initializations to prevent duplicate pool creation when
+ * multiple concurrent jobs for the same facility start at the same time.
  * @type {Record<string, Promise<oracle.Pool>>}
  */
 let pendingPoolInitializations = {};
 
 /**
- * Pools currently being recreated (mutex per poolKey so only one job
- * recreates an unhealthy pool while other jobs for that facility wait).
+ * In-flight pool recreations to serialize pool recreation across concurrent jobs.
  * @type {Record<string, Promise<oracle.Pool>>}
  */
 let pendingPoolRecreations = {};
 
-/**
- * Tracks active `getConnection` requests per pool key so we can see
- * exactly how many callers are waiting when a timeout happens.
- * Structure: waitingCounters[poolKey] = number
- * @type {Record<string, number>}
- */
-let waitingCounters = {};
-
-/**
- * Tracks where each pending acquire is stuck per pool key: pool initialization,
- * pool recreation, the native getConnection() call, or the validation query.
- * "Pool getConnection timeout after 45000ms" cannot tell them apart, and the
- * thick client cannot cancel a blocked native call, so this is the only way to
- * see where the wait is really spent.
- * @type {Map<string, Record<string, number>>}
- */
-const stageCounters = new Map();
-
-function enterStage(poolKey, stage) {
-  const counts = stageCounters.get(poolKey) || {};
-  counts[stage] = (counts[stage] || 0) + 1;
-  stageCounters.set(poolKey, counts);
-  return () => {
-    counts[stage] = Math.max((counts[stage] || 1) - 1, 0);
-  };
-}
-
-function snapshotStages(poolKey) {
-  return { ...(stageCounters.get(poolKey) || {}) };
-}
-
-/**
- * Serializes native `pool.getConnection()` calls per facility pool.
- *
- * The thick OCI session pool serializes session creation internally: while one
- * session is being created or re-authenticated, every other request on the same
- * pool waits on the same lock. Jobs fan out (one connection per job plus one per
- * doc worker), so a single slow logon used to turn into 6-7 concurrent native
- * requests that all timed out after 45s, each leaving behind an uncancellable
- * request that kept the pool wedged.
- *
- * With this gate only ONE request per pool is ever in flight; the rest queue
- * here. A caller that was already waiting when the in-flight request failed gets
- * that same failure immediately instead of adding another 45s request to a pool
- * that is already stuck.
- *
- * @type {Map<string, { tail: Promise<void>, lastFailure: Error|null, lastFailureAt: number, inFlight: number, queued: number }>}
- */
-const poolAcquireGates = new Map();
-
-/**
- * Native `pool.getConnection()` calls we abandoned on timeout that are still
- * pending inside the thick client. node-oracledb increments `connectionsInUse`
- * BEFORE the native await, so these zombies make a wedged pool look busy and
- * blocked every pool-recreation attempt (`totalPoolResets: 0` forever).
- * @type {Record<string, number>}
- */
-let abandonedAcquires = {};
-
-function markAbandonedAcquireSettled(poolKey) {
-  abandonedAcquires[poolKey] = Math.max(
-    (abandonedAcquires[poolKey] || 1) - 1,
-    0,
-  );
-}
-
-/**
- * Connections actually held by jobs, ignoring abandoned native requests.
- * @param {object|null} stats
- * @param {string} poolKey
- * @returns {number}
- */
-function getEffectiveInUse(stats, poolKey) {
-  if (!stats) return 0;
-  return Math.max(
-    (stats.connectionsInUse || 0) - (abandonedAcquires[poolKey] || 0),
-    0,
-  );
-}
-
-function getNativeAcquireSnapshot(poolKey) {
-  const gate = poolAcquireGates.get(poolKey);
-  return {
-    inFlight: gate?.inFlight || 0,
-    queued: gate?.queued || 0,
-    abandoned: abandonedAcquires[poolKey] || 0,
-  };
-}
-
-/**
- * Run `task` (a native `pool.getConnection()` call) as the only in-flight
- * request for `poolKey`.
- *
- * @template T
- * @param {string} poolKey
- * @param {() => Promise<T>} task
- * @returns {Promise<T>}
- */
-async function acquireWithPoolGate(poolKey, task) {
-  let gate = poolAcquireGates.get(poolKey);
-  if (!gate) {
-    gate = {
-      tail: Promise.resolve(),
-      lastFailure: null,
-      lastFailureAt: 0,
-      inFlight: 0,
-      queued: 0,
-    };
-    poolAcquireGates.set(poolKey, gate);
-  }
-
-  const queuedAt = Date.now();
-  const previous = gate.tail;
-  let release;
-  gate.tail = new Promise((resolve) => {
-    release = resolve;
-  });
-  gate.queued += 1;
-
-  try {
-    await previous;
-
-    if (gate.lastFailure && gate.lastFailureAt >= queuedAt) {
-      const skipped = new Error(
-        `Skipped native pool.getConnection() for ${poolKey}: a request that ` +
-          `was in flight while this caller waited failed with: ${gate.lastFailure.message}`,
-      );
-      skipped.code = "POOL_ACQUIRE_SKIPPED";
-      skipped.sharedAcquireError = gate.lastFailure;
-      throw skipped;
-    }
-
-    gate.inFlight += 1;
-    try {
-      return await task();
-    } catch (error) {
-      gate.lastFailure = error;
-      gate.lastFailureAt = Date.now();
-      throw error;
-    } finally {
-      gate.inFlight -= 1;
-    }
-  } finally {
-    gate.queued = Math.max(gate.queued - 1, 0);
-    release();
-  }
-}
-
-/**
- * Reject when `promise` has not settled within `ms`.
- * Used for steps the thick Oracle client cannot cancel (pool creation, native
- * connect) so one hung call cannot freeze every caller of the pool.
- */
-function raceWithDeadline(promise, ms, code, message, extra) {
-  let timer;
-  const deadline = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      const err = new Error(message);
-      err.code = code;
-      if (extra) {
-        err.diagnostics = extra;
-      }
-      reject(err);
-    }, ms);
-  });
-  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
-}
-
-/**
- * Rolling stats per poolKey. Useful to diagnose contention over time.
- * Structure: poolMetrics[poolKey] = {
- *   totalAcquired, totalReleased, totalTimeouts, totalErrors,
- *   totalValidationFailures, totalPoolResets, totalRetries,
- *   lastAcquireMs, lastTimeoutMs, lastErrorAt, lastResetReason
- * }
- * @type {Record<string, object>}
- */
-let poolMetrics = {};
-
 let isClientInitialized = false;
 
 /**
- * Build a canonical pool key per facility so all jobs for the same facility
- * share a single Oracle connection pool within the process.
+ * Initialize Oracle Thick Client if required.
  */
-function getPoolKey({
+function initOracleClient() {
+  if (!isClientInitialized) {
+    try {
+      if (conf.libDir) {
+        oracle.initOracleClient({ libDir: conf.libDir });
+      } else {
+        oracle.initOracleClient();
+      }
+      isClientInitialized = true;
+      oracleLogger.info("Oracle Client initialized successfully");
+    } catch (error) {
+      if (!String(error?.message || "").includes("already been initialized")) {
+        throw error;
+      }
+      isClientInitialized = true;
+    }
+  }
+}
+
+/**
+ * Build a canonical pool key per facility so all jobs for the same facility
+ * share a single Oracle connection pool.
+ *
+ * @param {object} [params]
+ * @param {string|number} [params.facilityId]
+ * @param {string} [params.userParam]
+ * @param {string} [params.connectStringParam]
+ * @returns {string}
+ */
+export function getPoolKey({
   facilityId,
   userParam,
   connectStringParam,
@@ -262,110 +78,11 @@ function getPoolKey({
   return `${userParam || conf.user}@${connectStringParam || conf.connectString}`;
 }
 
-function ensureMetricEntry(poolKey) {
-  if (!poolMetrics[poolKey]) {
-    poolMetrics[poolKey] = {
-      totalAcquired: 0,
-      totalReleased: 0,
-      totalTimeouts: 0,
-      totalErrors: 0,
-      totalValidationFailures: 0,
-      totalPoolResets: 0,
-      totalRetries: 0,
-      lastAcquireMs: 0,
-      lastTimeoutMs: 0,
-      lastErrorAt: null,
-      lastResetReason: null,
-    };
-  }
-  return poolMetrics[poolKey];
-}
-
 /**
- * Snapshot of a pool's native stats (open / in-use / max / increment).
- * @param {oracle.Pool|null} pool
- * @returns {object|null}
- */
-function mapPoolStatistics(pool) {
-  if (!pool) {
-    return null;
-  }
-  return {
-    connectionsOpen: pool.connectionsOpen,
-    connectionsInUse: pool.connectionsInUse,
-    poolMin: pool.poolMin,
-    poolMax: pool.poolMax,
-    poolIncrement: pool.poolIncrement,
-    queueTimeout: pool.queueTimeout,
-    poolTimeout: pool.poolTimeout,
-  };
-}
-
-/**
- * Build a detailed diagnostic snapshot for a pool key.
- * Combines:
- *  - current pool stats (open / in-use / max)
- *  - number of callers currently waiting for a connection
- *  - rolling counters (acquired / timeouts / errors / resets)
- *  - last error / last reset reason
+ * Check if an error indicates a broken, expired, or disconnected pool/connection.
+ * Used to trigger automatic pool recreation.
  *
- * @param {string|object} poolKeyOrSettings
- * @returns {object}
- */
-export function getPoolDiagnostics(poolKeyOrSettings = {}) {
-  const poolKey =
-    typeof poolKeyOrSettings === "string"
-      ? poolKeyOrSettings
-      : getPoolKey(poolKeyOrSettings);
-
-  const stats = mapPoolStatistics(pools[poolKey]);
-  const metrics = ensureMetricEntry(poolKey);
-  const waiting = waitingCounters[poolKey] || 0;
-  const retired = retiredPools.get(poolKey);
-
-  return {
-    poolKey,
-    stats,
-    waiting,
-    nativeAcquire: getNativeAcquireSnapshot(poolKey),
-    metrics: { ...metrics },
-    hasPool: Boolean(pools[poolKey]),
-    isInitializing: Boolean(pendingPoolInitializations[poolKey]),
-    isRecreating: Boolean(pendingPoolRecreations[poolKey]),
-    retiredPools: retired
-      ? [...retired].map((entry) => ({
-          reason: entry.reason,
-          ageMs: Date.now() - entry.retiredAt,
-          connectionsOpen: entry.pool.connectionsOpen,
-          connectionsInUse: entry.pool.connectionsInUse,
-        }))
-      : [],
-  };
-}
-
-/**
- * Return diagnostics for every known pool.
- * @returns {object}
- */
-export function getAllPoolDiagnostics() {
-  const result = {};
-  const keys = new Set([
-    ...Object.keys(pools),
-    ...Object.keys(pendingPoolInitializations),
-    ...Object.keys(pendingPoolRecreations),
-    ...Object.keys(waitingCounters),
-    ...Object.keys(poolMetrics),
-    ...retiredPools.keys(),
-  ]);
-  for (const key of keys) {
-    result[key] = getPoolDiagnostics(key);
-  }
-  return result;
-}
-
-/**
- * Check if an Oracle error indicates a broken/expired connection or pool.
- * @param {Error} error
+ * @param {Error|object} error
  * @returns {boolean}
  */
 export function isOracleConnectionOrPoolError(error) {
@@ -400,335 +117,11 @@ export function isOracleConnectionOrPoolError(error) {
     /EPIPE/i,
   ];
 
-  return (
-    code === "POOL_ACQUIRE_TIMEOUT" ||
-    code === "POOL_ACQUIRE_SKIPPED" ||
-    code === "VALIDATION_TIMEOUT" ||
-    fatalPatterns.some((re) => re.test(code) || re.test(msg))
-  );
+  return fatalPatterns.some((re) => re.test(code) || re.test(msg));
 }
 
 /**
- * Safely close a connection, optionally dropping it from the pool so a dead
- * socket is never returned to another job.
- * @param {oracle.Connection|null} connection
- * @param {object} [options]
- * @param {boolean} [options.drop=false]
- * @param {string} [options.poolKey="unknown"]
- */
-async function safeCloseConnection(
-  connection,
-  { drop = false, poolKey = "unknown" } = {},
-) {
-  if (!connection) return;
-  try {
-    await Promise.race([
-      connection.close(drop ? { drop: true } : undefined),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Connection close timeout")), 5000),
-      ),
-    ]);
-  } catch (closeError) {
-    oracleLogger.debug("Error closing Oracle connection", {
-      poolKey,
-      drop,
-      error: closeError.message,
-    });
-  }
-}
-
-/**
- * Detach a pool and close it only after all of its connections have been
- * returned. This is the safe alternative to `pool.close(drainTime)`, which
- * force-terminates connections that long-running jobs are still using.
- *
- * @param {string} poolKey
- * @param {oracle.Pool} pool
- * @param {string} reason
- */
-function retireOraclePool(poolKey, pool, reason) {
-  if (!pool) return;
-
-  if (!retiredPools.has(poolKey)) {
-    retiredPools.set(poolKey, new Set());
-  }
-
-  const entry = {
-    pool,
-    reason,
-    retiredAt: Date.now(),
-    timer: null,
-    closed: false,
-  };
-  retiredPools.get(poolKey).add(entry);
-
-  oracleLogger.warn("Retiring old Oracle pool (will close once idle)", {
-    poolKey,
-    reason,
-    connectionsOpen: pool.connectionsOpen,
-    connectionsInUse: pool.connectionsInUse,
-  });
-
-  const attemptClose = async () => {
-    entry.timer = null;
-
-    const bucket = retiredPools.get(poolKey);
-    if (!bucket || !bucket.has(entry) || entry.closed) {
-      return;
-    }
-
-    const connectionsInUse = pool.connectionsInUse;
-    const ageMs = Date.now() - entry.retiredAt;
-    const graceExpired = ageMs >= RETIRED_POOL_MAX_GRACE_MS;
-
-    if (connectionsInUse > 0 && !graceExpired) {
-      entry.timer = setTimeout(() => {
-        attemptClose().catch((error) =>
-          oracleLogger.warn("Error while retiring Oracle pool", {
-            poolKey,
-            reason,
-            error: error.message,
-          }),
-        );
-      }, RETIRED_POOL_POLL_MS);
-      entry.timer.unref?.();
-      return;
-    }
-
-    entry.closed = true;
-    bucket.delete(entry);
-    if (bucket.size === 0) {
-      retiredPools.delete(poolKey);
-    }
-
-    if (connectionsInUse > 0) {
-      oracleLogger.warn(
-        "Force-closing retired Oracle pool after grace period with connections still in use",
-        {
-          poolKey,
-          reason,
-          ageMs,
-          connectionsInUse,
-        },
-      );
-    }
-
-    try {
-      // Safe when connectionsInUse === 0: only idle connections are closed.
-      // If the grace period expired, force-close the remaining connections so
-      // Oracle sessions cannot leak forever.
-      await pool.close(0);
-      oracleLogger.debug("Retired Oracle pool closed", {
-        poolKey,
-        reason,
-        ageMs,
-        forced: connectionsInUse > 0,
-      });
-    } catch (closeErr) {
-      oracleLogger.warn("Error closing retired Oracle pool", {
-        poolKey,
-        reason,
-        error: closeErr.message,
-      });
-    }
-  };
-
-  entry.timer = setTimeout(() => {
-    attemptClose().catch((error) =>
-      oracleLogger.warn("Error while retiring Oracle pool", {
-        poolKey,
-        reason,
-        error: error.message,
-      }),
-    );
-  }, RETIRED_POOL_INITIAL_DELAY_MS);
-  entry.timer.unref?.();
-}
-
-/**
- * Run the dummy health check query (`SELECT 1 FROM DUAL`) on a connection
- * with a strict timeout so a dead socket cannot hang the job forever.
- * @param {oracle.Connection} connection
- * @param {number} [timeoutMs=VALIDATION_TIMEOUT_MS]
- * @returns {Promise<boolean>}
- */
-async function validateConnectionWithDummyQuery(
-  connection,
-  timeoutMs = VALIDATION_TIMEOUT_MS,
-) {
-  let timer = null;
-  try {
-    const result = await Promise.race([
-      connection.execute("SELECT 1 FROM DUAL"),
-      new Promise((_, reject) => {
-        timer = setTimeout(() => {
-          const err = new Error(
-            `Oracle dummy query (SELECT 1 FROM DUAL) timed out after ${timeoutMs}ms`,
-          );
-          err.code = "VALIDATION_TIMEOUT";
-          reject(err);
-        }, timeoutMs);
-      }),
-    ]);
-
-    return Boolean(result && Array.isArray(result.rows) && result.rows.length > 0);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
-/**
- * Compute exponential backoff delay with jitter.
- * @param {number} attempt - 0-based retry attempt index
- * @param {number} [baseMs=DEFAULT_BASE_BACKOFF_MS]
- * @param {number} [maxMs=DEFAULT_MAX_BACKOFF_MS]
- * @returns {number}
- */
-function computeBackoffDelayMs(
-  attempt,
-  baseMs = DEFAULT_BASE_BACKOFF_MS,
-  maxMs = DEFAULT_MAX_BACKOFF_MS,
-) {
-  const exponential = Math.min(maxMs, baseMs * Math.pow(2, attempt));
-  const jitter = Math.floor(Math.random() * 500);
-  return exponential + jitter;
-}
-
-/**
- * Sleep helper that respects an optional AbortSignal.
- * @param {number} ms
- * @param {AbortSignal} [abortSignal]
- * @returns {Promise<void>}
- */
-function sleepWithAbort(ms, abortSignal) {
-  return new Promise((resolve, reject) => {
-    if (abortSignal?.aborted) {
-      const err = new Error("Aborted during retry backoff");
-      err.name = "AbortError";
-      return reject(err);
-    }
-
-    let onAbort;
-    const timer = setTimeout(() => {
-      if (abortSignal && onAbort) {
-        abortSignal.removeEventListener("abort", onAbort);
-      }
-      resolve();
-    }, ms);
-
-    if (abortSignal) {
-      onAbort = () => {
-        clearTimeout(timer);
-        const err = new Error("Aborted during retry backoff");
-        err.name = "AbortError";
-        reject(err);
-      };
-      abortSignal.addEventListener("abort", onAbort, { once: true });
-    }
-  });
-}
-
-/**
- * Safely recreate the Oracle pool for a given facility/settings.
- * Guarded by `pendingPoolRecreations[poolKey]` so if 10 jobs for the same
- * facility detect an expired pool at the same time, only 1 recreation runs
- * and the other 9 await the new pool.
- *
- * The old pool is detached immediately and retired in the background: it is
- * only closed once every connection checked out from it has been returned (or
- * after a long grace period), so in-flight queries on other jobs can finish
- * cleanly without being terminated mid-flight.
- *
- * @param {object} [settings={}]
- * @param {string} [reason="unknown"]
- * @returns {Promise<oracle.Pool>}
- */
-export async function recreateOraclePool(settings = {}, reason = "unknown") {
-  const poolKey = getPoolKey(settings);
-
-  if (pendingPoolRecreations[poolKey]) {
-    oracleLogger.info(
-      `Oracle pool recreation already in progress for ${poolKey}, waiting...`,
-      { poolKey, reason },
-    );
-    return await pendingPoolRecreations[poolKey];
-  }
-
-  pendingPoolRecreations[poolKey] = (async () => {
-    const oldPool = pools[poolKey];
-    const metrics = ensureMetricEntry(poolKey);
-    metrics.totalPoolResets += 1;
-    metrics.lastResetReason = reason;
-
-    const diagBefore = getPoolDiagnostics(poolKey);
-
-    // Detach old pool immediately so new callers wait on the fresh pool
-    delete pools[poolKey];
-    delete pendingPoolInitializations[poolKey];
-
-    if (oldPool) {
-      // Detach and retire instead of force-closing. Closing a pool with
-      // connections still checked out terminates them after `drainTime`,
-      // which is exactly what caused mid-job NJS-003 / DPI-1010 errors.
-      retireOraclePool(poolKey, oldPool, reason);
-    }
-
-    oracleLogger.warn("Recreating shared Oracle pool for facility", {
-      poolKey,
-      reason,
-      beforeReset: diagBefore,
-    });
-
-    return await initOraclePool(settings);
-  })().finally(() => {
-    delete pendingPoolRecreations[poolKey];
-  });
-
-  return await pendingPoolRecreations[poolKey];
-}
-
-function initOracleClient() {
-  if (!isClientInitialized) {
-    try {
-      oracle.initOracleClient({ libDir: conf.libDir });
-      isClientInitialized = true;
-      oracleLogger.info("Oracle Client initialized successfully");
-    } catch (error) {
-      if (!String(error?.message || "").includes("already been initialized")) {
-        throw error;
-      }
-      isClientInitialized = true;
-    }
-  }
-}
-
-function getPoolDefaults(poolScope = "shared") {
-  if (poolScope === "job") {
-    return {
-      poolMin: conf.jobPoolMin,
-      poolMax: conf.jobPoolMax,
-      poolIncrement: conf.jobPoolIncrement,
-    };
-  }
-  if (poolScope === "api") {
-    return {
-      poolMin: conf.apiPoolMin,
-      poolMax: conf.apiPoolMax,
-      poolIncrement: conf.apiPoolIncrement,
-    };
-  }
-  return {
-    poolMin: conf.jobPoolMin ?? conf.sharedPoolMin ?? 1,
-    poolMax: conf.jobPoolMax ?? conf.sharedPoolMax ?? 16,
-    poolIncrement: conf.jobPoolIncrement ?? conf.sharedPoolIncrement ?? 2,
-  };
-}
-
-/**
- * Initialize a shared Oracle connection pool for a facility (or default key).
- * - Created lazily when the first job for a facility starts.
- * - Reused by all subsequent jobs for the same facility.
- * - Concurrent calls for the same facility await the same initialization promise.
+ * Initialize a single shared Oracle connection pool for a facility.
  *
  * @param {object} [options]
  * @returns {Promise<oracle.Pool>}
@@ -740,354 +133,118 @@ export async function initOraclePool({
   poolTimeout = conf.poolTimeout || 60,
   queueTimeout = conf.queueTimeout || 60000,
   connectTimeout = conf.connectTimeout ?? 20,
-  poolPingInterval = conf.poolPingInterval ?? -1,
   userParam,
   passwordParam,
   connectStringParam,
   facilityId,
   poolScope = "job",
 } = {}) {
-  const scopedDefaults = getPoolDefaults(poolScope);
-  const poolKey = getPoolKey({
-    facilityId,
-    poolScope,
-    userParam,
-    connectStringParam,
-  });
-  const resolvedPoolMin = poolMin ?? scopedDefaults.poolMin ?? 0;
-  const resolvedPoolMax = Math.max(poolMax ?? scopedDefaults.poolMax ?? 16, 10);
-  const resolvedPoolIncrement = poolIncrement ?? scopedDefaults.poolIncrement ?? 2;
-  const resolvedQueueTimeout = Number.isFinite(queueTimeout) && queueTimeout > 0
-    ? queueTimeout
-    : 60000;
-  const resolvedPoolTimeout = Number.isFinite(poolTimeout) && poolTimeout > 0
-    ? poolTimeout
-    : 60;
-  const resolvedConnectTimeout =
-    Number.isInteger(connectTimeout) && connectTimeout >= 0
-      ? connectTimeout
-      : 20;
-  const resolvedPoolPingInterval = Number.isInteger(poolPingInterval)
-    ? poolPingInterval
-    : -1;
-
-  ensureMetricEntry(poolKey);
+  const poolKey = getPoolKey({ facilityId, userParam, connectStringParam });
 
   if (pools[poolKey]) {
-    oracleLogger.debug("Using existing shared Oracle pool for facility", {
-      poolKey,
-      diagnostics: getPoolDiagnostics(poolKey),
-    });
     return pools[poolKey];
   }
 
   if (pendingPoolInitializations[poolKey]) {
-    oracleLogger.info(
-      `Oracle pool initialization already in progress for ${poolKey}, waiting...`,
-    );
     return await pendingPoolInitializations[poolKey];
   }
 
-  try {
-    initOracleClient();
+  const resolvedPoolMin =
+    poolMin ?? (poolScope === "job" ? conf.jobPoolMin : conf.sharedPoolMin) ?? 0;
+  const resolvedPoolMax = Math.max(
+    poolMax ?? (poolScope === "job" ? conf.jobPoolMax : conf.sharedPoolMax) ?? 16,
+    10,
+  );
+  const resolvedPoolIncrement =
+    poolIncrement ??
+    (poolScope === "job" ? conf.jobPoolIncrement : conf.sharedPoolIncrement) ??
+    2;
 
-    pendingPoolInitializations[poolKey] = oracle
-      .createPool({
-        user: userParam || conf.user,
-        password: passwordParam || conf.password,
-        connectString: connectStringParam || conf.connectString,
-        poolMin: resolvedPoolMin,
-        poolMax: resolvedPoolMax,
-        poolIncrement: resolvedPoolIncrement,
-        poolTimeout: resolvedPoolTimeout,
-        queueTimeout: resolvedQueueTimeout,
-        // Pings are disabled by default: in thick mode the pool ping has no
-        // timeout, so a dead idle session blocks getConnection() until the
-        // OS-level TCP timeout. That is the cause of
-        // "Pool getConnection timeout after 45000ms" while
-        // connectionsOpen < poolMax and nothing else is broken.
-        // acquireAndValidateOnce() already validates every handed-out
-        // connection with a bounded SELECT 1 FROM DUAL (VALIDATION_TIMEOUT_MS).
-        poolPingInterval: resolvedPoolPingInterval,
-        // Bound the physical connect so a hung handshake can never hold a pool
-        // creation slot open forever.
-        connectTimeout: resolvedConnectTimeout,
-        enableStatistics: true,
-      })
-      .then((pool) => {
-        pools[poolKey] = pool;
-        oracleLogger.info(
-          "✅ Shared Oracle connection pool created for facility",
-          {
-            poolKey,
-            facilityId: facilityId || null,
-            poolScope,
-            poolMin: resolvedPoolMin,
-            poolMax: resolvedPoolMax,
-            poolIncrement: resolvedPoolIncrement,
-            queueTimeout: resolvedQueueTimeout,
-            poolTimeout: resolvedPoolTimeout,
-            connectString: connectStringParam || conf.connectString,
-            connectTimeout: resolvedConnectTimeout,
-            poolPingInterval: resolvedPoolPingInterval,
-          },
-        );
-        return pool;
-      })
-      .finally(() => {
-        delete pendingPoolInitializations[poolKey];
-      });
+  initOracleClient();
 
-    return await pendingPoolInitializations[poolKey];
-  } catch (error) {
-    oracleLogger.error("fail to create Oracle connection pool", {
-      poolKey,
-      requested: {
-        poolMin: resolvedPoolMin,
-        poolMax: resolvedPoolMax,
-        poolIncrement: resolvedPoolIncrement,
-        queueTimeout: resolvedQueueTimeout,
-        poolTimeout: resolvedPoolTimeout,
-      },
-      error: formatErrorForLogs(error),
+  pendingPoolInitializations[poolKey] = oracle
+    .createPool({
+      user: userParam || conf.user,
+      password: passwordParam || conf.password,
+      connectString: connectStringParam || conf.connectString,
+      poolMin: resolvedPoolMin,
+      poolMax: resolvedPoolMax,
+      poolIncrement: resolvedPoolIncrement,
+      poolTimeout: Number(poolTimeout) || 60,
+      queueTimeout: Number(queueTimeout) || 60000,
+      connectTimeout: Number(connectTimeout) || 20,
+      enableStatistics: true,
+    })
+    .then((pool) => {
+      pools[poolKey] = pool;
+      oracleLogger.info(
+        `✅ Oracle pool initialized for ${poolKey} (poolMax=${resolvedPoolMax}, poolMin=${resolvedPoolMin})`,
+      );
+      return pool;
+    })
+    .catch((error) => {
+      oracleLogger.error(
+        `Failed to create Oracle connection pool for ${poolKey}: ${error.message}`,
+      );
+      throw error;
+    })
+    .finally(() => {
+      delete pendingPoolInitializations[poolKey];
     });
-    throw error;
-  }
+
+  return await pendingPoolInitializations[poolKey];
 }
 
 /**
- * Single attempt to acquire a connection from the facility's shared pool
- * and validate it with a dummy query (`SELECT 1 FROM DUAL`).
+ * Recreate the Oracle pool for a facility upon timeout or expired connection.
+ * Concurrent requests await the same recreation promise.
  *
- * @param {object} settings
- * @param {number} acquireTimeout
- * @returns {Promise<oracle.Connection>}
+ * @param {object} [settings]
+ * @param {string} [reason="unknown"]
+ * @returns {Promise<oracle.Pool>}
  */
-async function acquireAndValidateOnce(settings = {}, acquireTimeout = 45000) {
+export async function recreateOraclePool(settings = {}, reason = "unknown") {
   const poolKey = getPoolKey(settings);
-  const metrics = ensureMetricEntry(poolKey);
 
   if (pendingPoolRecreations[poolKey]) {
-    const leaveRecreateStage = enterStage(poolKey, "recreate-wait");
-    try {
-      await pendingPoolRecreations[poolKey];
-    } finally {
-      leaveRecreateStage();
-    }
+    return await pendingPoolRecreations[poolKey];
   }
 
-  if (!pools[poolKey]) {
-    oracleLogger.debug(`Shared pool not initialized for ${poolKey}, creating now...`);
-    const leaveInitStage = enterStage(poolKey, "pool-init");
-    let initTimedOut = false;
-    try {
-      // createPool() with poolMin > 0 performs real logons and the thick client
-      // has no connect timeout, so without a deadline an unresponsive HIS
-      // database would keep every caller of this pool waiting forever.
-      await raceWithDeadline(
-        initOraclePool(settings),
-        acquireTimeout,
-        "POOL_INIT_TIMEOUT",
-        `Oracle pool initialization timed out after ${acquireTimeout}ms for ${poolKey}`,
-        snapshotStages(poolKey),
-      );
-    } catch (initError) {
-      initTimedOut = initError?.code === "POOL_INIT_TIMEOUT";
-      throw initError;
-    } finally {
-      leaveInitStage();
-      if (initTimedOut) {
-        // The native createPool() may never settle. Drop the stale in-flight
-        // promise so the next attempt starts a fresh pool instead of waiting on
-        // the same hung initialization for the rest of the process lifetime.
-        delete pendingPoolInitializations[poolKey];
-      }
-    }
-  }
+  pendingPoolRecreations[poolKey] = (async () => {
+    const oldPool = pools[poolKey];
+    delete pools[poolKey];
+    delete pendingPoolInitializations[poolKey];
 
-  const acquireStartedAt = Date.now();
-  waitingCounters[poolKey] = (waitingCounters[poolKey] || 0) + 1;
-
-  try {
-    const pool = pools[poolKey];
-    if (!pool) {
-      throw new Error(`Oracle pool unavailable for key: ${poolKey}`);
-    }
-
-    const poolStatsBefore = getPoolStatistics(settings);
-
-    if (
-      poolStatsBefore &&
-      poolStatsBefore.connectionsInUse >= poolStatsBefore.poolMax - 1
-    ) {
-      oracleLogger.warn("Oracle pool nearly exhausted", {
-        poolKey,
-        waiting: waitingCounters[poolKey],
-        poolStats: poolStatsBefore,
-        metrics: { ...metrics },
-      });
-    }
-
-    let timeoutId;
-    let connection;
-    let acquirePromise = null;
-    const leaveAcquireStage = enterStage(poolKey, "getConnection");
-    try {
-      // Only ONE native request per facility pool at a time: a second
-      // concurrent getConnection() on a stuck OCI pool makes no progress, it
-      // only waits on the same internal lock for another 45s.
-      connection = await acquireWithPoolGate(poolKey, async () => {
-        acquirePromise = pool.getConnection();
-        return await Promise.race([
-          acquirePromise,
-          new Promise((_, reject) => {
-            timeoutId = setTimeout(() => {
-              // Use the pool instance this request is actually queued on. If the
-              // pool was recreated in the meantime, getPoolStatistics() would
-              // report the stats of the (idle) replacement pool and hide the fact
-              // that the request was stuck on the retired one.
-              const stats = mapPoolStatistics(pool);
-              const native = getNativeAcquireSnapshot(poolKey);
-              const timeoutError = new Error(
-                `Pool getConnection timeout after ${acquireTimeout}ms. ` +
-                  `Pool stats: connectionsInUse=${stats?.connectionsInUse}, ` +
-                  `connectionsOpen=${stats?.connectionsOpen}, ` +
-                  `poolMax=${stats?.poolMax}, waiting=${waitingCounters[poolKey]}, ` +
-                  `stages=${JSON.stringify(snapshotStages(poolKey))}, ` +
-                  `native=${JSON.stringify(native)}`,
-              );
-              timeoutError.code = "POOL_ACQUIRE_TIMEOUT";
-              timeoutError.diagnostics = {
-                poolKey,
-                stats,
-                native,
-                stages: snapshotStages(poolKey),
-                waiting: waitingCounters[poolKey],
-                metrics: { ...metrics },
-              };
-              reject(timeoutError);
-            }, acquireTimeout);
-          }),
-        ]);
-      });
-    } catch (error) {
-      // If our own acquire timeout won the race, the underlying
-      // `pool.getConnection()` is still pending. If it later resolves, the
-      // connection is checked out and would never be closed (leaked). Attach
-      // a handler that returns it to the pool, dropping it so a dead socket
-      // is not handed to another job.
-      if (
-        error?.code === "POOL_ACQUIRE_TIMEOUT" &&
-        acquirePromise &&
-        typeof acquirePromise.then === "function"
-      ) {
-        abandonedAcquires[poolKey] = (abandonedAcquires[poolKey] || 0) + 1;
-        acquirePromise.then(
-          (lateConnection) => {
-            // Count first, then close: recreation decisions must not keep
-            // seeing this request as a live job connection.
-            markAbandonedAcquireSettled(poolKey);
-            return safeCloseConnection(lateConnection, {
-              drop: true,
-              poolKey,
-            });
-          },
-          () => {
-            // The pending request eventually rejected (e.g. NJS-040).
-            markAbandonedAcquireSettled(poolKey);
-          },
+    if (oldPool) {
+      try {
+        oracleLogger.warn(
+          `Closing old Oracle pool for ${poolKey} due to: ${reason}`,
+        );
+        await oldPool.close(5);
+      } catch (closeErr) {
+        oracleLogger.warn(
+          `Error closing old Oracle pool ${poolKey}: ${closeErr.message}`,
         );
       }
-      throw error;
-    } finally {
-      clearTimeout(timeoutId);
-      leaveAcquireStage();
     }
 
-    const acquireMs = Date.now() - acquireStartedAt;
-    metrics.lastAcquireMs = acquireMs;
+    oracleLogger.info(`Recreating fresh Oracle pool for ${poolKey}...`);
+    return await initOraclePool(settings);
+  })().finally(() => {
+    delete pendingPoolRecreations[poolKey];
+  });
 
-    // Dummy query validation before the job starts: SELECT 1 FROM DUAL
-    let isValid = false;
-    const leaveValidateStage = enterStage(poolKey, "validate");
-    try {
-      isValid = await validateConnectionWithDummyQuery(connection, VALIDATION_TIMEOUT_MS);
-    } catch (validationError) {
-      metrics.totalValidationFailures += 1;
-      oracleLogger.warn("Dummy query validation failed on Oracle connection", {
-        poolKey,
-        acquireMs,
-        error: formatErrorForLogs(validationError),
-      });
-      await safeCloseConnection(connection, { drop: true, poolKey });
-      validationError.isValidationFailure = true;
-      throw validationError;
-    } finally {
-      leaveValidateStage();
-    }
-
-    if (!isValid) {
-      metrics.totalValidationFailures += 1;
-      await safeCloseConnection(connection, { drop: true, poolKey });
-      const emptyValidationErr = new Error(
-        `Dummy query (SELECT 1 FROM DUAL) returned no rows for ${poolKey}`,
-      );
-      emptyValidationErr.code = "VALIDATION_EMPTY";
-      emptyValidationErr.isValidationFailure = true;
-      throw emptyValidationErr;
-    }
-
-    oracleLogger.debug("Connection validated successfully via dummy query", {
-      poolKey,
-      acquireMs,
-      waiting: waitingCounters[poolKey] - 1,
-    });
-
-    metrics.totalAcquired += 1;
-
-    if (acquireMs > 2000) {
-      oracleLogger.warn("Slow connection acquisition from pool", {
-        poolKey,
-        acquireMs,
-        waiting: waitingCounters[poolKey] - 1,
-        poolStats: getPoolStatistics(settings),
-        metrics: { ...metrics },
-      });
-    }
-
-    return connection;
-  } catch (error) {
-    if (error?.code === "POOL_ACQUIRE_TIMEOUT" || /NJS-040/i.test(error?.message || "")) {
-      metrics.totalTimeouts += 1;
-      metrics.lastTimeoutMs = Date.now() - acquireStartedAt;
-      metrics.lastErrorAt = new Date().toISOString();
-    } else {
-      metrics.totalErrors += 1;
-      metrics.lastErrorAt = new Date().toISOString();
-    }
-    throw error;
-  } finally {
-    waitingCounters[poolKey] = Math.max(
-      (waitingCounters[poolKey] || 1) - 1,
-      0,
-    );
-  }
+  return await pendingPoolRecreations[poolKey];
 }
 
 /**
- * Get a validated connection from the facility's shared pool, with
- * automatic pool health verification, safe pool recreation if expired/broken,
- * and exponential backoff retry.
- *
- * IMPORTANT: The caller MUST close the returned connection.
- * Prefer `withOracleConnection()` which handles cleanup automatically.
+ * Acquire a connection from the facility's pool.
+ * Automatically initializes the pool on first request and recreates it if an
+ * unrecoverable timeout or connection drop occurs.
  *
  * @param {object} [settings]
  * @param {number} [acquireTimeout=45000]
  * @param {object} [retryOptions]
- * @param {number} [retryOptions.maxRetries=DEFAULT_MAX_RETRIES]
- * @param {number} [retryOptions.baseBackoffMs=DEFAULT_BASE_BACKOFF_MS]
- * @param {AbortSignal} [retryOptions.abortSignal]
  * @returns {Promise<oracle.Connection>}
  */
 export async function getOracleConnection(
@@ -1095,23 +252,48 @@ export async function getOracleConnection(
   acquireTimeout = 45000,
   retryOptions = {},
 ) {
-  const poolKey = getPoolKey(settings);
-  const metrics = ensureMetricEntry(poolKey);
-  const maxRetries = retryOptions.maxRetries ?? DEFAULT_MAX_RETRIES;
-  const baseBackoffMs = retryOptions.baseBackoffMs ?? DEFAULT_BASE_BACKOFF_MS;
+  const maxRetries = retryOptions.maxRetries ?? 2;
   const abortSignal = retryOptions.abortSignal ?? settings.abortSignal ?? null;
+  const poolKey = getPoolKey(settings);
 
   let lastError = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (abortSignal?.aborted) {
-      const abortErr = new Error(`Aborted before acquiring Oracle connection for ${poolKey}`);
+      const abortErr = new Error(
+        `Aborted before acquiring Oracle connection for ${poolKey}`,
+      );
       abortErr.name = "AbortError";
       throw abortErr;
     }
 
     try {
-      return await acquireAndValidateOnce(settings, acquireTimeout);
+      // 1. Ensure pool exists
+      let pool = pools[poolKey];
+      if (!pool) {
+        pool = await initOraclePool(settings);
+      }
+
+      // 2. Acquire connection with timeout
+      let timeoutId;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          const timeoutErr = new Error(
+            `Pool getConnection timeout after ${acquireTimeout}ms for ${poolKey}`,
+          );
+          timeoutErr.code = "POOL_ACQUIRE_TIMEOUT";
+          reject(timeoutErr);
+        }, acquireTimeout);
+      });
+
+      const connection = await Promise.race([
+        pool.getConnection(),
+        timeoutPromise,
+      ]).finally(() => {
+        clearTimeout(timeoutId);
+      });
+
+      return connection;
     } catch (error) {
       lastError = error;
 
@@ -1119,120 +301,30 @@ export async function getOracleConnection(
         throw error;
       }
 
-      const stats = getPoolStatistics(settings);
-      const isValidationFail = Boolean(error?.isValidationFailure);
-      const isSharedAcquireFailure = error?.code === "POOL_ACQUIRE_SKIPPED";
-      const isAcquireTimeout =
-        error?.code === "POOL_ACQUIRE_TIMEOUT" ||
-        error?.code === "POOL_ACQUIRE_SKIPPED" ||
-        /NJS-040/i.test(error?.message || "");
       const isConnOrPoolErr = isOracleConnectionOrPoolError(error);
 
-      // Each hung native acquire costs a full acquireTimeout (45s). Retrying it
-      // four times keeps a cron job stalled for minutes while piling even more
-      // waiters onto a native layer that is already stuck, so an acquire timeout
-      // gets a single retry - and none at all when this caller only inherited
-      // another caller's failed attempt.
-      const acquireTimeoutExhausted =
-        isSharedAcquireFailure || (isAcquireTimeout && attempt >= 1);
-
-      if (
-        attempt >= maxRetries ||
-        acquireTimeoutExhausted ||
-        (!isValidationFail && !isConnOrPoolErr)
-      ) {
-        oracleLogger.error("Failed to get Oracle connection after retries", {
-          poolKey,
-          attempt: attempt + 1,
-          maxAttempts: maxRetries + 1,
-          waiting: waitingCounters[poolKey] || 0,
-          stages: snapshotStages(poolKey),
-          nativeAcquire: getNativeAcquireSnapshot(poolKey),
-          effectiveInUse: getEffectiveInUse(stats, poolKey),
-          poolStats: stats,
-          metrics: { ...metrics },
-          error: formatErrorForLogs(error),
-        });
+      if (attempt >= maxRetries || !isConnOrPoolErr) {
+        oracleLogger.error(
+          `Failed to get Oracle connection for ${poolKey} (attempt ${attempt + 1}/${maxRetries + 1}): ${error.message}`,
+        );
         throw error;
       }
 
-      metrics.totalRetries += 1;
-
-      // A pool with connections checked out is BUSY, not broken. Recreating it
-      // would terminate the connections those jobs are actively using (the old
-      // code did exactly that and produced NJS-003 / DPI-1010 mid-job). Only
-      // consider recreation when nobody is using the pool - counting only the
-      // connections real jobs hold, not the requests we abandoned on timeout.
-      const effectiveInUse = getEffectiveInUse(stats, poolKey);
-      const poolBusy = effectiveInUse > 0;
-      const isPoolLevelError =
-        isConnOrPoolErr && !isAcquireTimeout && !isValidationFail;
-
-      // Decide whether the pool itself needs recreation:
-      // 1. Dummy query failed and no other open connections remain to try
-      // 2. Pool threw NJS-064 / NJS-065 / ORA-03113 / ORA-03114 / ORA-03135 / DPI-1010 / DPI-1080
-      // 3. Acquire timeout happened while the pool has no open connections (wedged pool)
-      // 4. Acquire timeout happened on retry attempt >= 2 and a direct pool health ping fails
-      let shouldRecreatePool = false;
-      if (!poolBusy) {
-        if (isValidationFail) {
-          shouldRecreatePool = !stats || stats.connectionsOpen === 0;
-        } else if (isPoolLevelError) {
-          shouldRecreatePool = true;
-        } else if (isAcquireTimeout) {
-          // The pool could not hand out a single connection while no job was
-          // using it, even with sessions open: the OCI session pool is wedged
-          // (one hung logon holds its internal lock) and never recovers on its
-          // own - the old rule required connectionsOpen === 0, so a wedged pool
-          // kept timing out forever with totalPoolResets: 0. Recreating is safe
-          // here because nothing is checked out.
-          shouldRecreatePool = true;
-        }
-      }
-
-      if (!shouldRecreatePool && !poolBusy && isAcquireTimeout && attempt >= 1) {
-        const poolHealthy = await checkOraclePoolHealth(poolKey);
-        if (!poolHealthy) {
-          shouldRecreatePool = true;
-        }
-      }
-
-      const delayMs = computeBackoffDelayMs(attempt, baseBackoffMs);
-
+      const backoffMs = (attempt + 1) * 1500;
       oracleLogger.warn(
-        `Oracle connection attempt ${attempt + 1}/${maxRetries + 1} failed for ${poolKey}; ` +
-          `${shouldRecreatePool ? "recreating pool and " : ""}retrying in ${delayMs}ms`,
-        {
-          poolKey,
-          attempt: attempt + 1,
-          delayMs,
-          shouldRecreatePool,
-          stages: snapshotStages(poolKey),
-          nativeAcquire: getNativeAcquireSnapshot(poolKey),
-          effectiveInUse,
-          poolStats: stats,
-          error: error.message,
-        },
+        `Oracle connection attempt ${attempt + 1}/${maxRetries + 1} failed for ${poolKey} (${error.message}). Recreating pool and retrying in ${backoffMs}ms...`,
       );
 
-      await sleepWithAbort(delayMs, abortSignal);
-
-      if (shouldRecreatePool) {
-        try {
-          await recreateOraclePool(
-            settings,
-            isValidationFail
-              ? "dummy-query-validation-failed"
-              : error.code || "connection-error",
-          );
-        } catch (recreateErr) {
-          oracleLogger.error("Error recreating Oracle pool during retry", {
-            poolKey,
-            attempt: attempt + 1,
-            error: formatErrorForLogs(recreateErr),
-          });
-        }
+      // Recreate pool on timeout or broken pool
+      try {
+        await recreateOraclePool(settings, error.code || "ACQUIRE_TIMEOUT");
+      } catch (recErr) {
+        oracleLogger.error(
+          `Error recreating pool for ${poolKey}: ${recErr.message}`,
+        );
       }
+
+      await new Promise((r) => setTimeout(r, backoffMs));
     }
   }
 
@@ -1240,223 +332,7 @@ export async function getOracleConnection(
 }
 
 /**
- * Get pool statistics for a specific pool.
- * @param {object} [settings]
- * @returns {object|null}
- */
-export function getPoolStatistics(settings = {}) {
-  const poolKey = getPoolKey(settings);
-  const pool = pools[poolKey];
-  return mapPoolStatistics(pool);
-}
-
-/**
- * Get statistics for all pools.
- * @returns {object}
- */
-export function getAllPoolStatistics() {
-  const result = {};
-  for (const [poolKey, pool] of Object.entries(pools)) {
-    result[poolKey] = mapPoolStatistics(pool);
-  }
-  return result;
-}
-
-/**
- * Force-close retired pools. Only used during explicit shutdown, where waiting
- * for jobs to finish is not desirable.
- * @param {string} [poolKey] - close retired pools for one key, or all when omitted
- */
-async function forceCloseRetiredPools(poolKey) {
-  const keys = poolKey ? [poolKey] : [...retiredPools.keys()];
-
-  for (const key of keys) {
-    const bucket = retiredPools.get(key);
-    if (!bucket) continue;
-
-    for (const entry of [...bucket]) {
-      if (entry.timer) {
-        clearTimeout(entry.timer);
-      }
-      entry.closed = true;
-      bucket.delete(entry);
-
-      try {
-        await entry.pool.close(0);
-      } catch (error) {
-        oracleLogger.debug("Error force-closing retired Oracle pool", {
-          poolKey: key,
-          reason: entry.reason,
-          error: error.message,
-        });
-      }
-    }
-
-    if (bucket.size === 0) {
-      retiredPools.delete(key);
-    }
-  }
-}
-
-/**
- * Close a specific pool.
- * @param {number} [drainTime=10]
- * @param {string} [poolKey]
- * @returns {Promise<void>}
- */
-export async function closeOraclePool(drainTime = 10, poolKey) {
-  const mainPoolKey = getPoolKey();
-  const targetPoolKey =
-    poolKey ||
-    (pools[mainPoolKey]
-      ? mainPoolKey
-      : Object.keys(pools).find((key) => Boolean(pools[key])));
-
-  if (!targetPoolKey) {
-    oracleLogger.warn("No Oracle pool to close");
-    await forceCloseRetiredPools(poolKey);
-    return;
-  }
-
-  const pool = pools[targetPoolKey];
-  if (pool) {
-    try {
-      oracleLogger.debug(`Closing Oracle pool (drain time: ${drainTime}s)...`, {
-        poolKey: targetPoolKey,
-        diagnostics: getPoolDiagnostics(targetPoolKey),
-      });
-      await pool.close(drainTime);
-      delete pools[targetPoolKey];
-      delete pendingPoolInitializations[targetPoolKey];
-      delete pendingPoolRecreations[targetPoolKey];
-      delete waitingCounters[targetPoolKey];
-      oracleLogger.info("✅ Oracle pool closed successfully");
-    } catch (error) {
-      oracleLogger.error("Error closing Oracle pool", {
-        poolKey: targetPoolKey,
-        error: formatErrorForLogs(error),
-      });
-      throw error;
-    }
-  } else {
-    oracleLogger.warn("No Oracle pool to close", { poolKey: targetPoolKey });
-  }
-
-  await forceCloseRetiredPools(targetPoolKey);
-}
-
-/**
- * Close all pools.
- * @param {number} [drainTime=10]
- * @returns {Promise<void>}
- */
-export async function closeAllOraclePools(drainTime = 10) {
-  const poolKeys = Object.keys(pools).filter((key) => Boolean(pools[key]));
-  for (const poolKey of poolKeys) {
-    await closeOraclePool(drainTime, poolKey);
-  }
-  await forceCloseRetiredPools();
-}
-
-/**
- * Simple health check on one or all pools using dummy query (`SELECT 1 FROM DUAL`).
- * @param {string} [poolKey]
- * @returns {Promise<boolean>}
- */
-export async function checkOraclePoolHealth(poolKey) {
-  try {
-    if (!pools || Object.keys(pools).length === 0) {
-      return false;
-    }
-
-    const keysToCheck = poolKey
-      ? [poolKey]
-      : Object.keys(pools).filter((key) => Boolean(pools[key]));
-
-    if (keysToCheck.length === 0) {
-      return false;
-    }
-
-    for (const key of keysToCheck) {
-      const pool = pools[key];
-      if (!pool) {
-        oracleLogger.warn(`Oracle pool not found for key: ${key}`);
-        return false;
-      }
-
-      let connection;
-      let timeoutId = null;
-      let healthPromise = null;
-      let dropConnection = false;
-      try {
-        healthPromise = pool.getConnection();
-        connection = await Promise.race([
-          healthPromise,
-          new Promise((_, reject) => {
-            timeoutId = setTimeout(
-              () => reject(new Error(`Health check getConnection timeout for ${key}`)),
-              VALIDATION_TIMEOUT_MS,
-            );
-          }),
-        ]);
-        const valid = await validateConnectionWithDummyQuery(
-          connection,
-          VALIDATION_TIMEOUT_MS,
-        );
-        if (!valid) {
-          oracleLogger.error(
-            `Oracle pool health query returned no rows for key: ${key}`,
-          );
-          await safeCloseConnection(connection, { drop: true, poolKey: key });
-          connection = null;
-          return false;
-        }
-      } catch (healthError) {
-        // If the race timed out, the underlying getConnection() is still
-        // pending. Close the connection if it eventually resolves so the
-        // health check cannot leak a checked-out connection.
-        if (!connection && healthPromise) {
-          healthPromise.then(
-            (lateConnection) =>
-              safeCloseConnection(lateConnection, { drop: true, poolKey: key }),
-            () => {
-              // The pending request eventually rejected.
-            },
-          );
-        }
-        // The health check failed while we were holding a connection: treat it
-        // as suspect and drop it instead of returning a dead socket to the pool.
-        if (connection) {
-          dropConnection = true;
-        }
-        throw healthError;
-      } finally {
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-        }
-        if (connection) {
-          await safeCloseConnection(connection, {
-            drop: dropConnection,
-            poolKey: key,
-          });
-        }
-      }
-    }
-
-    return true;
-  } catch (error) {
-    oracleLogger.error("Oracle pool health check fail", {
-      poolKey,
-      error: formatErrorForLogs(error),
-    });
-    return false;
-  }
-}
-
-/**
- * Build the Oracle pool settings for a facility row (from the `facility`
- * table). Shared by `withOracleConnection()` and callers that need an
- * additional connection from the same facility pool.
+ * Build standard pool settings object for a facility record.
  *
  * @param {object} facility
  * @param {AbortSignal} [abortSignal]
@@ -1477,18 +353,11 @@ export function getFacilityPoolSettings(facility, abortSignal = null) {
 
 /**
  * Wrap a job handler so that:
- * 1. It fetches the facility from PostgreSQL.
- * 2. When the first job for a facility starts, it lazily initializes a single
- *    shared Oracle pool for that facility (`facility:<facilityId>`), and all
- *    subsequent jobs for the same facility share that pool.
- * 3. Before executing the job, it acquires a connection (with exponential
- *    backoff retry) and validates it via `SELECT 1 FROM DUAL` (recreating the
- *    pool automatically if expired/broken).
- * 4. If the job itself fails mid-execution due to an Oracle connection/pool
- *    drop, it drops the dead connection and retries the job with exponential
- *    backoff. The pool is only recreated when it is idle and unhealthy, so
- *    other jobs are never disconnected.
- * 5. Guarantees the connection is closed in `finally`.
+ * 1. Fetches facility settings from PostgreSQL.
+ * 2. Uses the shared pool for this facility (creates lazily once, reuses forever).
+ * 3. Acquires a connection and executes the job.
+ * 4. Automatically recreates pool and retries once if connection is lost.
+ * 5. Guarantees connection is returned to pool in finally.
  *
  * @param {(args: { connection: any, facility: any, abortSignal: AbortSignal, params: object }) => Promise<any>} fn
  * @returns {Function}
@@ -1514,9 +383,7 @@ export const withOracleConnection =
     }
 
     const poolSettings = getFacilityPoolSettings(facility, abortSignal);
-
-    const poolKey = getPoolKey(poolSettings);
-    const maxJobRetries = 2;
+    const maxJobRetries = 1;
     let lastJobError = null;
 
     for (let jobAttempt = 0; jobAttempt <= maxJobRetries; jobAttempt++) {
@@ -1528,17 +395,15 @@ export const withOracleConnection =
         throw abortErr;
       }
 
-      // Acquires a connection from the shared facility pool, runs SELECT 1 FROM DUAL,
-      // and automatically retries with backoff + pool recreation if needed.
-      let connection = await getOracleConnection(poolSettings, 45000, {
-        maxRetries: DEFAULT_MAX_RETRIES,
-        baseBackoffMs: DEFAULT_BASE_BACKOFF_MS,
-        abortSignal,
-      });
-
+      let connection = null;
       let dropConnectionOnClose = false;
 
       try {
+        connection = await getOracleConnection(poolSettings, 45000, {
+          maxRetries: 2,
+          abortSignal,
+        });
+
         const summary = await fn({
           connection,
           facility,
@@ -1548,6 +413,7 @@ export const withOracleConnection =
             episodeNo: null,
           },
         });
+
         return summary;
       } catch (jobError) {
         lastJobError = jobError;
@@ -1557,63 +423,191 @@ export const withOracleConnection =
           dropConnectionOnClose = true;
         }
 
-        if (
-          !isConnErr ||
-          jobAttempt >= maxJobRetries ||
-          abortSignal?.aborted
-        ) {
+        if (!isConnErr || jobAttempt >= maxJobRetries || abortSignal?.aborted) {
           throw jobError;
         }
 
-        const backoffMs = computeBackoffDelayMs(jobAttempt, DEFAULT_BASE_BACKOFF_MS);
         oracleLogger.warn(
           `[cron] Job for facility ${facilityId} failed due to Oracle connection error ` +
             `(attempt ${jobAttempt + 1}/${maxJobRetries + 1}): ${jobError.message}. ` +
-            `Retrying with a fresh connection in ${backoffMs}ms...`,
-          { poolKey, facilityId, attempt: jobAttempt + 1 },
+            `Recreating pool and retrying in 2000ms...`,
         );
 
-        await safeCloseConnection(connection, { drop: true, poolKey });
-        connection = null;
-        const metrics = ensureMetricEntry(poolKey);
-        metrics.totalReleased += 1;
-
-        await sleepWithAbort(backoffMs, abortSignal);
-
-        // Do not tear down a pool other jobs are using. Only replace it when it
-        // is idle and a direct health check fails; otherwise the next acquire
-        // attempt will validate/replace individual connections as needed.
-        const diag = getPoolDiagnostics(poolKey);
-        if (!diag.stats || diag.stats.connectionsInUse === 0) {
-          const healthy = await checkOraclePoolHealth(poolKey);
-          if (!healthy) {
-            await recreateOraclePool(
-              poolSettings,
-              "job-mid-execution-connection-lost",
-            );
-          }
+        if (connection) {
+          try {
+            await connection.close({ drop: true });
+          } catch (_) {}
+          connection = null;
         }
+
+        try {
+          await recreateOraclePool(
+            poolSettings,
+            jobError.code || "JOB_CONNECTION_ERROR",
+          );
+        } catch (recErr) {
+          oracleLogger.error(
+            `Error recreating pool after job failure: ${recErr.message}`,
+          );
+        }
+
+        await new Promise((r) => setTimeout(r, 2000));
       } finally {
         if (connection) {
-          await safeCloseConnection(connection, {
-            drop: dropConnectionOnClose,
-            poolKey,
-          });
-
-          const metrics = ensureMetricEntry(poolKey);
-          metrics.totalReleased += 1;
-
-          oracleLogger.debug(
-            `[cron] Connection released for facility ${facilityId}`,
-            {
-              poolKey,
-              dropped: dropConnectionOnClose,
-              metrics: { ...metrics },
-            },
-          );
+          try {
+            await connection.close(
+              dropConnectionOnClose ? { drop: true } : undefined,
+            );
+            oracleLogger.debug(
+              `[cron] Connection released back to pool for facility ${facilityId}`,
+            );
+          } catch (closeErr) {
+            oracleLogger.debug(
+              `[cron] Error closing connection for facility ${facilityId}: ${closeErr.message}`,
+            );
+          }
         }
       }
     }
 
     throw lastJobError;
   };
+
+/**
+ * Close a specific Oracle connection pool.
+ *
+ * @param {number} [drainTime=5]
+ * @param {string} [poolKey]
+ * @returns {Promise<void>}
+ */
+export async function closeOraclePool(drainTime = 5, poolKey) {
+  const targetPoolKey =
+    poolKey || Object.keys(pools).find((k) => Boolean(pools[k]));
+  if (!targetPoolKey) return;
+
+  const pool = pools[targetPoolKey];
+  if (pool) {
+    try {
+      delete pools[targetPoolKey];
+      delete pendingPoolInitializations[targetPoolKey];
+      delete pendingPoolRecreations[targetPoolKey];
+      await pool.close(drainTime);
+      oracleLogger.info(`✅ Oracle pool closed successfully: ${targetPoolKey}`);
+    } catch (error) {
+      oracleLogger.error(
+        `Error closing Oracle pool ${targetPoolKey}: ${error.message}`,
+      );
+    }
+  }
+}
+
+/**
+ * Close all active Oracle connection pools (used on application/worker shutdown).
+ *
+ * @param {number} [drainTime=5]
+ * @returns {Promise<void>}
+ */
+export async function closeAllOraclePools(drainTime = 5) {
+  const poolKeys = Object.keys(pools);
+  if (poolKeys.length === 0) return;
+
+  oracleLogger.info(`Closing all Oracle pools (${poolKeys.length} active)...`);
+  await Promise.all(poolKeys.map((key) => closeOraclePool(drainTime, key)));
+  oracleLogger.info("✅ All Oracle pools closed");
+}
+
+/**
+ * Get statistics of a pool.
+ *
+ * @param {object|string} [settings]
+ * @returns {object|null}
+ */
+export function getPoolStatistics(settings = {}) {
+  const poolKey =
+    typeof settings === "string" ? settings : getPoolKey(settings);
+  const pool = pools[poolKey];
+  if (!pool) return null;
+  return {
+    connectionsOpen: pool.connectionsOpen,
+    connectionsInUse: pool.connectionsInUse,
+    poolMin: pool.poolMin,
+    poolMax: pool.poolMax,
+    poolIncrement: pool.poolIncrement,
+    queueTimeout: pool.queueTimeout,
+    poolTimeout: pool.poolTimeout,
+  };
+}
+
+/**
+ * Get statistics of all pools.
+ * @returns {Record<string, object>}
+ */
+export function getAllPoolStatistics() {
+  const result = {};
+  for (const key of Object.keys(pools)) {
+    result[key] = getPoolStatistics(key);
+  }
+  return result;
+}
+
+/**
+ * Diagnostics snapshot helper.
+ *
+ * @param {string|object} [poolKeyOrSettings={}]
+ * @returns {object}
+ */
+export function getPoolDiagnostics(poolKeyOrSettings = {}) {
+  const poolKey =
+    typeof poolKeyOrSettings === "string"
+      ? poolKeyOrSettings
+      : getPoolKey(poolKeyOrSettings);
+  return {
+    poolKey,
+    stats: getPoolStatistics(poolKey),
+    hasPool: Boolean(pools[poolKey]),
+    isInitializing: Boolean(pendingPoolInitializations[poolKey]),
+    isRecreating: Boolean(pendingPoolRecreations[poolKey]),
+  };
+}
+
+/**
+ * Diagnostics snapshot helper for all known pools.
+ * @returns {Record<string, object>}
+ */
+export function getAllPoolDiagnostics() {
+  const result = {};
+  const allKeys = new Set([
+    ...Object.keys(pools),
+    ...Object.keys(pendingPoolInitializations),
+    ...Object.keys(pendingPoolRecreations),
+  ]);
+  for (const key of allKeys) {
+    result[key] = getPoolDiagnostics(key);
+  }
+  return result;
+}
+
+/**
+ * Health check on a pool by executing a lightweight SELECT 1 FROM DUAL.
+ *
+ * @param {string} poolKey
+ * @returns {Promise<boolean>}
+ */
+export async function checkOraclePoolHealth(poolKey) {
+  const pool = pools[poolKey];
+  if (!pool) return false;
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const result = await conn.execute("SELECT 1 FROM DUAL");
+    return Boolean(result?.rows?.length);
+  } catch (error) {
+    return false;
+  } finally {
+    if (conn) {
+      try {
+        await conn.close();
+      } catch (_) {}
+    }
+  }
+}

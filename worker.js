@@ -1,4 +1,8 @@
 // worker.js
+if (!process.env.UV_THREADPOOL_SIZE) {
+  process.env.UV_THREADPOOL_SIZE = "64";
+}
+
 import { clientLogger } from "./config/logger.js";
 import {
   checkDatabaseConnection,
@@ -18,6 +22,8 @@ let shuttingDown = false;
 
 /**
  * Graceful shutdown.
+ * Closes cron jobs, all active Oracle facility pools, and PostgreSQL connection pool.
+ *
  * @param {string} signal
  */
 async function shutdown(signal = "shutdown") {
@@ -35,9 +41,9 @@ async function shutdown(signal = "shutdown") {
   process.on("SIGTERM", () => process.exit(0));
 
   const forceExitTimer = setTimeout(() => {
-    clientLogger.error("Shutdown timeout (3s); forcing exit");
+    clientLogger.error("Shutdown timeout (6s); forcing exit");
     process.exit(1);
-  }, 3000);
+  }, 6000);
   forceExitTimer.unref();
 
   try {
@@ -48,22 +54,21 @@ async function shutdown(signal = "shutdown") {
 
   try {
     await Promise.race([
-      closeDatabasePool(),
-      new Promise((r) => setTimeout(r, 1000)),
+      closeAllOraclePools(3),
+      new Promise((r) => setTimeout(r, 4000)),
     ]);
-    clientLogger.info("PostgreSQL pool closed");
   } catch (error) {
-    clientLogger.error(`Error closing PostgreSQL pool: ${error.message}`);
+    clientLogger.error(`Error closing Oracle pools: ${error.message}`);
   }
 
   try {
     await Promise.race([
-      closeAllOraclePools(),
-      new Promise((r) => setTimeout(r, 1000)),
+      closeDatabasePool(),
+      new Promise((r) => setTimeout(r, 2000)),
     ]);
-    clientLogger.info("Oracle pools closed");
+    clientLogger.info("PostgreSQL pool closed");
   } catch (error) {
-    clientLogger.error(`Error closing Oracle pools: ${error.message}`);
+    clientLogger.error(`Error closing PostgreSQL pool: ${error.message}`);
   }
 
   clientLogger.info("Worker stopped");
@@ -111,12 +116,12 @@ async function startWorker() {
 }
 
 process.on("SIGTERM", () => {
-  clientLogger.debug("CLOSING>>>>>>>>>>>>>>>>");
+  clientLogger.debug("CLOSING (SIGTERM) >>>>>>>>>>>>>>>>");
   shutdown("SIGTERM");
 });
 
 process.on("SIGINT", () => {
-  clientLogger.debug("CLOSING>>>>>>>>>>>>>>>>");
+  clientLogger.debug("CLOSING (SIGINT) >>>>>>>>>>>>>>>>");
   shutdown("SIGINT");
 });
 
