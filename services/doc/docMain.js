@@ -22,6 +22,11 @@ import {
   getRelativePath,
 } from "../../util/runQueryFromFile.js";
 import { runWithConcurrency } from "../../util/runWithConcurrency.js";
+import {
+  getOracleConnection,
+  getFacilityPoolSettings,
+  isOracleConnectionOrPoolError,
+} from "../../config/oracle-dynamic.js";
 
 import {
   removeElement,
@@ -537,17 +542,32 @@ export async function handleDocOrderRequest({
       items: masterRows,
       maxConcurrency: 2,
       abortSignal,
+      // A dead Oracle connection means the rest of this batch would only produce
+      // misleading validation errors (missing health ID / LOINC mappings).
+      // Stop the batch and let withOracleConnection() retry with a fresh pool.
+      isFatalError: isOracleConnectionOrPoolError,
       worker: async (masterRow, index) => {
+        let workerConnection = null;
+        let dropOnClose = false;
         try {
           clientLogger.info(
             `Send To Nphies for index=${index} Document ID =${masterRow.ORDER_LINE}`,
           );
 
-          
           const recordStart = process.hrtime.bigint();
+
+          // Give each concurrent worker its own connection. Sharing one
+          // connection across workers interleaves commits and means a single
+          // connection problem kills every in-flight row at once.
+          workerConnection = await getOracleConnection(
+            getFacilityPoolSettings(facility, abortSignal),
+            45000,
+            { abortSignal },
+          );
+
           const res = await prepareSingleDocSendToNphies({
             masterOrder: masterRow,
-            connection,
+            connection: workerConnection,
             facility,
             DOC: { ...DOC },
             UniqueData: { ...UniqueData },
@@ -585,11 +605,26 @@ export async function handleDocOrderRequest({
           }
           return res;
         } catch (err) {
+          if (isOracleConnectionOrPoolError(err)) {
+            dropOnClose = true;
+          }
           clientLogger.error(
             `😩😩 Send To Nphies fail for index=${index} Document ID =${masterRow.ORDER_LINE} : ⛔ ${err.message}`,
             err,
           );
           throw err;
+        } finally {
+          if (workerConnection) {
+            try {
+              await workerConnection.close(
+                dropOnClose ? { drop: true } : undefined,
+              );
+            } catch (closeErr) {
+              clientLogger.warn(
+                `Error closing Oracle connection for index=${index} Document ID =${masterRow.ORDER_LINE}: ${closeErr.message}`,
+              );
+            }
+          }
         }
       },
     });

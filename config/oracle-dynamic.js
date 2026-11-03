@@ -14,7 +14,23 @@ const DEFAULT_MAX_RETRIES = 4;
 const DEFAULT_BASE_BACKOFF_MS = 2000;
 const DEFAULT_MAX_BACKOFF_MS = 20000;
 const VALIDATION_TIMEOUT_MS = 5000;
-const POOL_DRAIN_SECONDS = 10;
+
+/**
+ * How long to wait before the first close attempt on a retired pool.
+ * Gives in-flight `getConnection()` requests time to resolve so we do not
+ * close a pool while a connection is being handed out.
+ */
+const RETIRED_POOL_INITIAL_DELAY_MS = 2000;
+
+/** How often to re-check a retired pool for checked-out connections. */
+const RETIRED_POOL_POLL_MS = 5000;
+
+/**
+ * Hard upper bound on how long a retired pool may keep sessions open.
+ * Jobs are capped at 20 minutes (MAX_JOB_EXECUTION_MS), so this gives a
+ * generous buffer before force-closing a leaked connection.
+ */
+const RETIRED_POOL_MAX_GRACE_MS = 25 * 60 * 1000;
 
 /**
  * All live pools, keyed by poolKey.
@@ -23,6 +39,18 @@ const POOL_DRAIN_SECONDS = 10;
  * @type {Record<string, oracle.Pool>}
  */
 let pools = {};
+
+/**
+ * Pools that have been replaced and are waiting to be closed safely.
+ * They are detached from `pools` immediately (so new work uses the fresh pool)
+ * but are NOT closed until every connection checked out from them is returned.
+ * Force-closing a pool with connections in use is what produced
+ * `NJS-003: invalid or closed connection / DPI-1010: not connected` mid-job.
+ *
+ * Structure: retiredPools[poolKey] = Set<{ pool, reason, retiredAt, timer, closed }>
+ * @type {Map<string, Set<object>>}
+ */
+const retiredPools = new Map();
 
 /**
  * Pools currently being initialized (mutex per poolKey so concurrent jobs
@@ -133,6 +161,7 @@ export function getPoolDiagnostics(poolKeyOrSettings = {}) {
   const stats = mapPoolStatistics(pools[poolKey]);
   const metrics = ensureMetricEntry(poolKey);
   const waiting = waitingCounters[poolKey] || 0;
+  const retired = retiredPools.get(poolKey);
 
   return {
     poolKey,
@@ -142,6 +171,14 @@ export function getPoolDiagnostics(poolKeyOrSettings = {}) {
     hasPool: Boolean(pools[poolKey]),
     isInitializing: Boolean(pendingPoolInitializations[poolKey]),
     isRecreating: Boolean(pendingPoolRecreations[poolKey]),
+    retiredPools: retired
+      ? [...retired].map((entry) => ({
+          reason: entry.reason,
+          ageMs: Date.now() - entry.retiredAt,
+          connectionsOpen: entry.pool.connectionsOpen,
+          connectionsInUse: entry.pool.connectionsInUse,
+        }))
+      : [],
   };
 }
 
@@ -157,6 +194,7 @@ export function getAllPoolDiagnostics() {
     ...Object.keys(pendingPoolRecreations),
     ...Object.keys(waitingCounters),
     ...Object.keys(poolMetrics),
+    ...retiredPools.keys(),
   ]);
   for (const key of keys) {
     result[key] = getPoolDiagnostics(key);
@@ -235,6 +273,114 @@ async function safeCloseConnection(
       error: closeError.message,
     });
   }
+}
+
+/**
+ * Detach a pool and close it only after all of its connections have been
+ * returned. This is the safe alternative to `pool.close(drainTime)`, which
+ * force-terminates connections that long-running jobs are still using.
+ *
+ * @param {string} poolKey
+ * @param {oracle.Pool} pool
+ * @param {string} reason
+ */
+function retireOraclePool(poolKey, pool, reason) {
+  if (!pool) return;
+
+  if (!retiredPools.has(poolKey)) {
+    retiredPools.set(poolKey, new Set());
+  }
+
+  const entry = {
+    pool,
+    reason,
+    retiredAt: Date.now(),
+    timer: null,
+    closed: false,
+  };
+  retiredPools.get(poolKey).add(entry);
+
+  oracleLogger.warn("Retiring old Oracle pool (will close once idle)", {
+    poolKey,
+    reason,
+    connectionsOpen: pool.connectionsOpen,
+    connectionsInUse: pool.connectionsInUse,
+  });
+
+  const attemptClose = async () => {
+    entry.timer = null;
+
+    const bucket = retiredPools.get(poolKey);
+    if (!bucket || !bucket.has(entry) || entry.closed) {
+      return;
+    }
+
+    const connectionsInUse = pool.connectionsInUse;
+    const ageMs = Date.now() - entry.retiredAt;
+    const graceExpired = ageMs >= RETIRED_POOL_MAX_GRACE_MS;
+
+    if (connectionsInUse > 0 && !graceExpired) {
+      entry.timer = setTimeout(() => {
+        attemptClose().catch((error) =>
+          oracleLogger.warn("Error while retiring Oracle pool", {
+            poolKey,
+            reason,
+            error: error.message,
+          }),
+        );
+      }, RETIRED_POOL_POLL_MS);
+      entry.timer.unref?.();
+      return;
+    }
+
+    entry.closed = true;
+    bucket.delete(entry);
+    if (bucket.size === 0) {
+      retiredPools.delete(poolKey);
+    }
+
+    if (connectionsInUse > 0) {
+      oracleLogger.warn(
+        "Force-closing retired Oracle pool after grace period with connections still in use",
+        {
+          poolKey,
+          reason,
+          ageMs,
+          connectionsInUse,
+        },
+      );
+    }
+
+    try {
+      // Safe when connectionsInUse === 0: only idle connections are closed.
+      // If the grace period expired, force-close the remaining connections so
+      // Oracle sessions cannot leak forever.
+      await pool.close(0);
+      oracleLogger.debug("Retired Oracle pool closed", {
+        poolKey,
+        reason,
+        ageMs,
+        forced: connectionsInUse > 0,
+      });
+    } catch (closeErr) {
+      oracleLogger.warn("Error closing retired Oracle pool", {
+        poolKey,
+        reason,
+        error: closeErr.message,
+      });
+    }
+  };
+
+  entry.timer = setTimeout(() => {
+    attemptClose().catch((error) =>
+      oracleLogger.warn("Error while retiring Oracle pool", {
+        poolKey,
+        reason,
+        error: error.message,
+      }),
+    );
+  }, RETIRED_POOL_INITIAL_DELAY_MS);
+  entry.timer.unref?.();
 }
 
 /**
@@ -326,9 +472,10 @@ function sleepWithAbort(ms, abortSignal) {
  * facility detect an expired pool at the same time, only 1 recreation runs
  * and the other 9 await the new pool.
  *
- * The old pool is drained asynchronously in the background with `close(drainTime)`
- * so any in-flight queries on other jobs can finish cleanly without leaking
- * sessions on the Oracle server.
+ * The old pool is detached immediately and retired in the background: it is
+ * only closed once every connection checked out from it has been returned (or
+ * after a long grace period), so in-flight queries on other jobs can finish
+ * cleanly without being terminated mid-flight.
  *
  * @param {object} [settings={}]
  * @param {string} [reason="unknown"]
@@ -358,30 +505,10 @@ export async function recreateOraclePool(settings = {}, reason = "unknown") {
     delete pendingPoolInitializations[poolKey];
 
     if (oldPool) {
-      // Drain and close the old pool in the background without blocking recreation
-      Promise.resolve()
-        .then(async () => {
-          try {
-            await oldPool.close(POOL_DRAIN_SECONDS);
-            oracleLogger.debug("Old Oracle pool drained and closed during recreate", {
-              poolKey,
-              reason,
-              beforeReset: diagBefore,
-            });
-          } catch (closeErr) {
-            try {
-              await oldPool.close(0);
-            } catch (_) {
-              // ignore secondary close error
-            }
-            oracleLogger.warn("Error closing old Oracle pool during recreate", {
-              poolKey,
-              reason,
-              error: closeErr.message,
-            });
-          }
-        })
-        .catch(() => {});
+      // Detach and retire instead of force-closing. Closing a pool with
+      // connections still checked out terminates them after `drainTime`,
+      // which is exactly what caused mid-job NJS-003 / DPI-1010 errors.
+      retireOraclePool(poolKey, oldPool, reason);
     }
 
     oracleLogger.warn("Recreating shared Oracle pool for facility", {
@@ -591,9 +718,11 @@ async function acquireAndValidateOnce(settings = {}, acquireTimeout = 45000) {
 
     let timeoutId;
     let connection;
+    let acquirePromise = null;
     try {
+      acquirePromise = pool.getConnection();
       connection = await Promise.race([
-        pool.getConnection(),
+        acquirePromise,
         new Promise((_, reject) => {
           timeoutId = setTimeout(() => {
             const stats = getPoolStatistics(settings);
@@ -614,6 +743,29 @@ async function acquireAndValidateOnce(settings = {}, acquireTimeout = 45000) {
           }, acquireTimeout);
         }),
       ]);
+    } catch (error) {
+      // If our own acquire timeout won the race, the underlying
+      // `pool.getConnection()` is still pending. If it later resolves, the
+      // connection is checked out and would never be closed (leaked). Attach
+      // a handler that returns it to the pool, dropping it so a dead socket
+      // is not handed to another job.
+      if (
+        error?.code === "POOL_ACQUIRE_TIMEOUT" &&
+        acquirePromise &&
+        typeof acquirePromise.then === "function"
+      ) {
+        acquirePromise.then(
+          (lateConnection) =>
+            safeCloseConnection(lateConnection, {
+              drop: true,
+              poolKey,
+            }),
+          () => {
+            // The pending request eventually rejected (e.g. NJS-040).
+          },
+        );
+      }
+      throw error;
     } finally {
       clearTimeout(timeoutId);
     }
@@ -752,17 +904,31 @@ export async function getOracleConnection(
 
       metrics.totalRetries += 1;
 
-      // Decide whether the pool itself needs recreation:
-      // 1. Dummy query failed (connection/pool expired or dropped by firewall/Oracle)
-      // 2. Pool threw NJS-064 / NJS-065 / ORA-03113 / ORA-03114 / ORA-03135 / DPI-1010 / DPI-1080
-      // 3. Acquire timeout happened while pool shows 0 in-use connections (wedged pool)
-      // 4. Acquire timeout happened on retry attempt >= 2 and a direct pool health ping fails
-      let shouldRecreatePool =
-        isValidationFail ||
-        (!isAcquireTimeout && isConnOrPoolErr) ||
-        (isAcquireTimeout && stats && stats.connectionsInUse === 0);
+      // A pool with connections checked out is BUSY, not broken. Recreating it
+      // would terminate the connections those jobs are actively using (the old
+      // code did exactly that and produced NJS-003 / DPI-1010 mid-job). Only
+      // consider recreation when nobody is using the pool.
+      const poolBusy = Boolean(stats && stats.connectionsInUse > 0);
+      const isPoolLevelError =
+        isConnOrPoolErr && !isAcquireTimeout && !isValidationFail;
 
-      if (!shouldRecreatePool && isAcquireTimeout && attempt >= 1) {
+      // Decide whether the pool itself needs recreation:
+      // 1. Dummy query failed and no other open connections remain to try
+      // 2. Pool threw NJS-064 / NJS-065 / ORA-03113 / ORA-03114 / ORA-03135 / DPI-1010 / DPI-1080
+      // 3. Acquire timeout happened while the pool has no open connections (wedged pool)
+      // 4. Acquire timeout happened on retry attempt >= 2 and a direct pool health ping fails
+      let shouldRecreatePool = false;
+      if (!poolBusy) {
+        if (isValidationFail) {
+          shouldRecreatePool = !stats || stats.connectionsOpen === 0;
+        } else if (isPoolLevelError) {
+          shouldRecreatePool = true;
+        } else if (isAcquireTimeout && (!stats || stats.connectionsOpen === 0)) {
+          shouldRecreatePool = true;
+        }
+      }
+
+      if (!shouldRecreatePool && !poolBusy && isAcquireTimeout && attempt >= 1) {
         const poolHealthy = await checkOraclePoolHealth(poolKey);
         if (!poolHealthy) {
           shouldRecreatePool = true;
@@ -832,6 +998,42 @@ export function getAllPoolStatistics() {
 }
 
 /**
+ * Force-close retired pools. Only used during explicit shutdown, where waiting
+ * for jobs to finish is not desirable.
+ * @param {string} [poolKey] - close retired pools for one key, or all when omitted
+ */
+async function forceCloseRetiredPools(poolKey) {
+  const keys = poolKey ? [poolKey] : [...retiredPools.keys()];
+
+  for (const key of keys) {
+    const bucket = retiredPools.get(key);
+    if (!bucket) continue;
+
+    for (const entry of [...bucket]) {
+      if (entry.timer) {
+        clearTimeout(entry.timer);
+      }
+      entry.closed = true;
+      bucket.delete(entry);
+
+      try {
+        await entry.pool.close(0);
+      } catch (error) {
+        oracleLogger.debug("Error force-closing retired Oracle pool", {
+          poolKey: key,
+          reason: entry.reason,
+          error: error.message,
+        });
+      }
+    }
+
+    if (bucket.size === 0) {
+      retiredPools.delete(key);
+    }
+  }
+}
+
+/**
  * Close a specific pool.
  * @param {number} [drainTime=10]
  * @param {string} [poolKey]
@@ -847,6 +1049,7 @@ export async function closeOraclePool(drainTime = 10, poolKey) {
 
   if (!targetPoolKey) {
     oracleLogger.warn("No Oracle pool to close");
+    await forceCloseRetiredPools(poolKey);
     return;
   }
 
@@ -873,6 +1076,8 @@ export async function closeOraclePool(drainTime = 10, poolKey) {
   } else {
     oracleLogger.warn("No Oracle pool to close", { poolKey: targetPoolKey });
   }
+
+  await forceCloseRetiredPools(targetPoolKey);
 }
 
 /**
@@ -885,6 +1090,7 @@ export async function closeAllOraclePools(drainTime = 10) {
   for (const poolKey of poolKeys) {
     await closeOraclePool(drainTime, poolKey);
   }
+  await forceCloseRetiredPools();
 }
 
 /**
@@ -914,15 +1120,19 @@ export async function checkOraclePoolHealth(poolKey) {
       }
 
       let connection;
+      let timeoutId = null;
+      let healthPromise = null;
+      let dropConnection = false;
       try {
+        healthPromise = pool.getConnection();
         connection = await Promise.race([
-          pool.getConnection(),
-          new Promise((_, reject) =>
-            setTimeout(
+          healthPromise,
+          new Promise((_, reject) => {
+            timeoutId = setTimeout(
               () => reject(new Error(`Health check getConnection timeout for ${key}`)),
               VALIDATION_TIMEOUT_MS,
-            ),
-          ),
+            );
+          }),
         ]);
         const valid = await validateConnectionWithDummyQuery(
           connection,
@@ -936,9 +1146,34 @@ export async function checkOraclePoolHealth(poolKey) {
           connection = null;
           return false;
         }
-      } finally {
+      } catch (healthError) {
+        // If the race timed out, the underlying getConnection() is still
+        // pending. Close the connection if it eventually resolves so the
+        // health check cannot leak a checked-out connection.
+        if (!connection && healthPromise) {
+          healthPromise.then(
+            (lateConnection) =>
+              safeCloseConnection(lateConnection, { drop: true, poolKey: key }),
+            () => {
+              // The pending request eventually rejected.
+            },
+          );
+        }
+        // The health check failed while we were holding a connection: treat it
+        // as suspect and drop it instead of returning a dead socket to the pool.
         if (connection) {
-          await safeCloseConnection(connection, { drop: false, poolKey: key });
+          dropConnection = true;
+        }
+        throw healthError;
+      } finally {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        if (connection) {
+          await safeCloseConnection(connection, {
+            drop: dropConnection,
+            poolKey: key,
+          });
         }
       }
     }
@@ -954,6 +1189,28 @@ export async function checkOraclePoolHealth(poolKey) {
 }
 
 /**
+ * Build the Oracle pool settings for a facility row (from the `facility`
+ * table). Shared by `withOracleConnection()` and callers that need an
+ * additional connection from the same facility pool.
+ *
+ * @param {object} facility
+ * @param {AbortSignal} [abortSignal]
+ * @returns {object}
+ */
+export function getFacilityPoolSettings(facility, abortSignal = null) {
+  const facilityId = facility?.facility_id ?? facility?.facilityId ?? null;
+
+  return {
+    facilityId,
+    poolScope: "job",
+    userParam: facility?.his_db_username,
+    passwordParam: facility?.his_db_password,
+    connectStringParam: `${facility?.his_db_host}:${facility?.his_db_port}/${facility?.his_db_name}`,
+    abortSignal,
+  };
+}
+
+/**
  * Wrap a job handler so that:
  * 1. It fetches the facility from PostgreSQL.
  * 2. When the first job for a facility starts, it lazily initializes a single
@@ -963,7 +1220,9 @@ export async function checkOraclePoolHealth(poolKey) {
  *    backoff retry) and validates it via `SELECT 1 FROM DUAL` (recreating the
  *    pool automatically if expired/broken).
  * 4. If the job itself fails mid-execution due to an Oracle connection/pool
- *    drop, it recreates the pool and retries the job with exponential backoff.
+ *    drop, it drops the dead connection and retries the job with exponential
+ *    backoff. The pool is only recreated when it is idle and unhealthy, so
+ *    other jobs are never disconnected.
  * 5. Guarantees the connection is closed in `finally`.
  *
  * @param {(args: { connection: any, facility: any, abortSignal: AbortSignal, params: object }) => Promise<any>} fn
@@ -989,14 +1248,7 @@ export const withOracleConnection =
       throw pgError;
     }
 
-    const poolSettings = {
-      facilityId,
-      poolScope: "job",
-      userParam: facility.his_db_username,
-      passwordParam: facility.his_db_password,
-      connectStringParam: `${facility.his_db_host}:${facility.his_db_port}/${facility.his_db_name}`,
-      abortSignal,
-    };
+    const poolSettings = getFacilityPoolSettings(facility, abortSignal);
 
     const poolKey = getPoolKey(poolSettings);
     const maxJobRetries = 2;
@@ -1052,7 +1304,7 @@ export const withOracleConnection =
         oracleLogger.warn(
           `[cron] Job for facility ${facilityId} failed due to Oracle connection error ` +
             `(attempt ${jobAttempt + 1}/${maxJobRetries + 1}): ${jobError.message}. ` +
-            `Recreating facility pool and retrying in ${backoffMs}ms...`,
+            `Retrying with a fresh connection in ${backoffMs}ms...`,
           { poolKey, facilityId, attempt: jobAttempt + 1 },
         );
 
@@ -1062,7 +1314,20 @@ export const withOracleConnection =
         metrics.totalReleased += 1;
 
         await sleepWithAbort(backoffMs, abortSignal);
-        await recreateOraclePool(poolSettings, "job-mid-execution-connection-lost");
+
+        // Do not tear down a pool other jobs are using. Only replace it when it
+        // is idle and a direct health check fails; otherwise the next acquire
+        // attempt will validate/replace individual connections as needed.
+        const diag = getPoolDiagnostics(poolKey);
+        if (!diag.stats || diag.stats.connectionsInUse === 0) {
+          const healthy = await checkOraclePoolHealth(poolKey);
+          if (!healthy) {
+            await recreateOraclePool(
+              poolSettings,
+              "job-mid-execution-connection-lost",
+            );
+          }
+        }
       } finally {
         if (connection) {
           await safeCloseConnection(connection, {
