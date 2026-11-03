@@ -98,6 +98,123 @@ function snapshotStages(poolKey) {
 }
 
 /**
+ * Serializes native `pool.getConnection()` calls per facility pool.
+ *
+ * The thick OCI session pool serializes session creation internally: while one
+ * session is being created or re-authenticated, every other request on the same
+ * pool waits on the same lock. Jobs fan out (one connection per job plus one per
+ * doc worker), so a single slow logon used to turn into 6-7 concurrent native
+ * requests that all timed out after 45s, each leaving behind an uncancellable
+ * request that kept the pool wedged.
+ *
+ * With this gate only ONE request per pool is ever in flight; the rest queue
+ * here. A caller that was already waiting when the in-flight request failed gets
+ * that same failure immediately instead of adding another 45s request to a pool
+ * that is already stuck.
+ *
+ * @type {Map<string, { tail: Promise<void>, lastFailure: Error|null, lastFailureAt: number, inFlight: number, queued: number }>}
+ */
+const poolAcquireGates = new Map();
+
+/**
+ * Native `pool.getConnection()` calls we abandoned on timeout that are still
+ * pending inside the thick client. node-oracledb increments `connectionsInUse`
+ * BEFORE the native await, so these zombies make a wedged pool look busy and
+ * blocked every pool-recreation attempt (`totalPoolResets: 0` forever).
+ * @type {Record<string, number>}
+ */
+let abandonedAcquires = {};
+
+function markAbandonedAcquireSettled(poolKey) {
+  abandonedAcquires[poolKey] = Math.max(
+    (abandonedAcquires[poolKey] || 1) - 1,
+    0,
+  );
+}
+
+/**
+ * Connections actually held by jobs, ignoring abandoned native requests.
+ * @param {object|null} stats
+ * @param {string} poolKey
+ * @returns {number}
+ */
+function getEffectiveInUse(stats, poolKey) {
+  if (!stats) return 0;
+  return Math.max(
+    (stats.connectionsInUse || 0) - (abandonedAcquires[poolKey] || 0),
+    0,
+  );
+}
+
+function getNativeAcquireSnapshot(poolKey) {
+  const gate = poolAcquireGates.get(poolKey);
+  return {
+    inFlight: gate?.inFlight || 0,
+    queued: gate?.queued || 0,
+    abandoned: abandonedAcquires[poolKey] || 0,
+  };
+}
+
+/**
+ * Run `task` (a native `pool.getConnection()` call) as the only in-flight
+ * request for `poolKey`.
+ *
+ * @template T
+ * @param {string} poolKey
+ * @param {() => Promise<T>} task
+ * @returns {Promise<T>}
+ */
+async function acquireWithPoolGate(poolKey, task) {
+  let gate = poolAcquireGates.get(poolKey);
+  if (!gate) {
+    gate = {
+      tail: Promise.resolve(),
+      lastFailure: null,
+      lastFailureAt: 0,
+      inFlight: 0,
+      queued: 0,
+    };
+    poolAcquireGates.set(poolKey, gate);
+  }
+
+  const queuedAt = Date.now();
+  const previous = gate.tail;
+  let release;
+  gate.tail = new Promise((resolve) => {
+    release = resolve;
+  });
+  gate.queued += 1;
+
+  try {
+    await previous;
+
+    if (gate.lastFailure && gate.lastFailureAt >= queuedAt) {
+      const skipped = new Error(
+        `Skipped native pool.getConnection() for ${poolKey}: a request that ` +
+          `was in flight while this caller waited failed with: ${gate.lastFailure.message}`,
+      );
+      skipped.code = "POOL_ACQUIRE_SKIPPED";
+      skipped.sharedAcquireError = gate.lastFailure;
+      throw skipped;
+    }
+
+    gate.inFlight += 1;
+    try {
+      return await task();
+    } catch (error) {
+      gate.lastFailure = error;
+      gate.lastFailureAt = Date.now();
+      throw error;
+    } finally {
+      gate.inFlight -= 1;
+    }
+  } finally {
+    gate.queued = Math.max(gate.queued - 1, 0);
+    release();
+  }
+}
+
+/**
  * Reject when `promise` has not settled within `ms`.
  * Used for steps the thick Oracle client cannot cancel (pool creation, native
  * connect) so one hung call cannot freeze every caller of the pool.
@@ -210,6 +327,7 @@ export function getPoolDiagnostics(poolKeyOrSettings = {}) {
     poolKey,
     stats,
     waiting,
+    nativeAcquire: getNativeAcquireSnapshot(poolKey),
     metrics: { ...metrics },
     hasPool: Boolean(pools[poolKey]),
     isInitializing: Boolean(pendingPoolInitializations[poolKey]),
@@ -284,6 +402,7 @@ export function isOracleConnectionOrPoolError(error) {
 
   return (
     code === "POOL_ACQUIRE_TIMEOUT" ||
+    code === "POOL_ACQUIRE_SKIPPED" ||
     code === "VALIDATION_TIMEOUT" ||
     fatalPatterns.some((re) => re.test(code) || re.test(msg))
   );
@@ -814,35 +933,43 @@ async function acquireAndValidateOnce(settings = {}, acquireTimeout = 45000) {
     let acquirePromise = null;
     const leaveAcquireStage = enterStage(poolKey, "getConnection");
     try {
-      acquirePromise = pool.getConnection();
-      connection = await Promise.race([
-        acquirePromise,
-        new Promise((_, reject) => {
-          timeoutId = setTimeout(() => {
-            // Use the pool instance this request is actually queued on. If the
-            // pool was recreated in the meantime, getPoolStatistics() would
-            // report the stats of the (idle) replacement pool and hide the fact
-            // that the request was stuck on the retired one.
-            const stats = mapPoolStatistics(pool);
-            const timeoutError = new Error(
-              `Pool getConnection timeout after ${acquireTimeout}ms. ` +
-                `Pool stats: connectionsInUse=${stats?.connectionsInUse}, ` +
-                `connectionsOpen=${stats?.connectionsOpen}, ` +
-                `poolMax=${stats?.poolMax}, waiting=${waitingCounters[poolKey]}, ` +
-                `stages=${JSON.stringify(snapshotStages(poolKey))}`,
-            );
-            timeoutError.code = "POOL_ACQUIRE_TIMEOUT";
-            timeoutError.diagnostics = {
-              poolKey,
-              stats,
-              stages: snapshotStages(poolKey),
-              waiting: waitingCounters[poolKey],
-              metrics: { ...metrics },
-            };
-            reject(timeoutError);
-          }, acquireTimeout);
-        }),
-      ]);
+      // Only ONE native request per facility pool at a time: a second
+      // concurrent getConnection() on a stuck OCI pool makes no progress, it
+      // only waits on the same internal lock for another 45s.
+      connection = await acquireWithPoolGate(poolKey, async () => {
+        acquirePromise = pool.getConnection();
+        return await Promise.race([
+          acquirePromise,
+          new Promise((_, reject) => {
+            timeoutId = setTimeout(() => {
+              // Use the pool instance this request is actually queued on. If the
+              // pool was recreated in the meantime, getPoolStatistics() would
+              // report the stats of the (idle) replacement pool and hide the fact
+              // that the request was stuck on the retired one.
+              const stats = mapPoolStatistics(pool);
+              const native = getNativeAcquireSnapshot(poolKey);
+              const timeoutError = new Error(
+                `Pool getConnection timeout after ${acquireTimeout}ms. ` +
+                  `Pool stats: connectionsInUse=${stats?.connectionsInUse}, ` +
+                  `connectionsOpen=${stats?.connectionsOpen}, ` +
+                  `poolMax=${stats?.poolMax}, waiting=${waitingCounters[poolKey]}, ` +
+                  `stages=${JSON.stringify(snapshotStages(poolKey))}, ` +
+                  `native=${JSON.stringify(native)}`,
+              );
+              timeoutError.code = "POOL_ACQUIRE_TIMEOUT";
+              timeoutError.diagnostics = {
+                poolKey,
+                stats,
+                native,
+                stages: snapshotStages(poolKey),
+                waiting: waitingCounters[poolKey],
+                metrics: { ...metrics },
+              };
+              reject(timeoutError);
+            }, acquireTimeout);
+          }),
+        ]);
+      });
     } catch (error) {
       // If our own acquire timeout won the race, the underlying
       // `pool.getConnection()` is still pending. If it later resolves, the
@@ -854,14 +981,20 @@ async function acquireAndValidateOnce(settings = {}, acquireTimeout = 45000) {
         acquirePromise &&
         typeof acquirePromise.then === "function"
       ) {
+        abandonedAcquires[poolKey] = (abandonedAcquires[poolKey] || 0) + 1;
         acquirePromise.then(
-          (lateConnection) =>
-            safeCloseConnection(lateConnection, {
+          (lateConnection) => {
+            // Count first, then close: recreation decisions must not keep
+            // seeing this request as a live job connection.
+            markAbandonedAcquireSettled(poolKey);
+            return safeCloseConnection(lateConnection, {
               drop: true,
               poolKey,
-            }),
+            });
+          },
           () => {
             // The pending request eventually rejected (e.g. NJS-040).
+            markAbandonedAcquireSettled(poolKey);
           },
         );
       }
@@ -988,16 +1121,20 @@ export async function getOracleConnection(
 
       const stats = getPoolStatistics(settings);
       const isValidationFail = Boolean(error?.isValidationFailure);
+      const isSharedAcquireFailure = error?.code === "POOL_ACQUIRE_SKIPPED";
       const isAcquireTimeout =
         error?.code === "POOL_ACQUIRE_TIMEOUT" ||
+        error?.code === "POOL_ACQUIRE_SKIPPED" ||
         /NJS-040/i.test(error?.message || "");
       const isConnOrPoolErr = isOracleConnectionOrPoolError(error);
 
       // Each hung native acquire costs a full acquireTimeout (45s). Retrying it
       // four times keeps a cron job stalled for minutes while piling even more
       // waiters onto a native layer that is already stuck, so an acquire timeout
-      // gets a single retry.
-      const acquireTimeoutExhausted = isAcquireTimeout && attempt >= 1;
+      // gets a single retry - and none at all when this caller only inherited
+      // another caller's failed attempt.
+      const acquireTimeoutExhausted =
+        isSharedAcquireFailure || (isAcquireTimeout && attempt >= 1);
 
       if (
         attempt >= maxRetries ||
@@ -1010,6 +1147,8 @@ export async function getOracleConnection(
           maxAttempts: maxRetries + 1,
           waiting: waitingCounters[poolKey] || 0,
           stages: snapshotStages(poolKey),
+          nativeAcquire: getNativeAcquireSnapshot(poolKey),
+          effectiveInUse: getEffectiveInUse(stats, poolKey),
           poolStats: stats,
           metrics: { ...metrics },
           error: formatErrorForLogs(error),
@@ -1022,8 +1161,10 @@ export async function getOracleConnection(
       // A pool with connections checked out is BUSY, not broken. Recreating it
       // would terminate the connections those jobs are actively using (the old
       // code did exactly that and produced NJS-003 / DPI-1010 mid-job). Only
-      // consider recreation when nobody is using the pool.
-      const poolBusy = Boolean(stats && stats.connectionsInUse > 0);
+      // consider recreation when nobody is using the pool - counting only the
+      // connections real jobs hold, not the requests we abandoned on timeout.
+      const effectiveInUse = getEffectiveInUse(stats, poolKey);
+      const poolBusy = effectiveInUse > 0;
       const isPoolLevelError =
         isConnOrPoolErr && !isAcquireTimeout && !isValidationFail;
 
@@ -1038,7 +1179,13 @@ export async function getOracleConnection(
           shouldRecreatePool = !stats || stats.connectionsOpen === 0;
         } else if (isPoolLevelError) {
           shouldRecreatePool = true;
-        } else if (isAcquireTimeout && (!stats || stats.connectionsOpen === 0)) {
+        } else if (isAcquireTimeout) {
+          // The pool could not hand out a single connection while no job was
+          // using it, even with sessions open: the OCI session pool is wedged
+          // (one hung logon holds its internal lock) and never recovers on its
+          // own - the old rule required connectionsOpen === 0, so a wedged pool
+          // kept timing out forever with totalPoolResets: 0. Recreating is safe
+          // here because nothing is checked out.
           shouldRecreatePool = true;
         }
       }
@@ -1061,6 +1208,8 @@ export async function getOracleConnection(
           delayMs,
           shouldRecreatePool,
           stages: snapshotStages(poolKey),
+          nativeAcquire: getNativeAcquireSnapshot(poolKey),
+          effectiveInUse,
           poolStats: stats,
           error: error.message,
         },
