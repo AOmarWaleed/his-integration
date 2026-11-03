@@ -32,6 +32,7 @@ import path from "path";
 import fs from "fs";
 import { NPHIES_FAIL_ID } from "../../util/constant.js";
 import { fetchSystemRule } from "../../util/fetchSystemRule.js";
+import { isOracleConnectionOrPoolError } from "../../config/oracle-dynamic.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1252,6 +1253,12 @@ export const medicationPrescriptionToNPHIES = async (connection, params) => {
             }),
         );
       } catch (error) {
+        if (isOracleConnectionOrPoolError(error)) {
+          MEDICATION_LOGGER.error(
+            `Fatal Oracle connection error during prescription processing: ${error.message}. Aborting batch so connection and pool can be refreshed cleanly.`,
+          );
+          throw error;
+        }
         count.failCount++;
         MEDICATION_LOGGER.error(
           `Error details while processing prescription for request ${request.MASTER_NO}: ` +
