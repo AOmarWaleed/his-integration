@@ -616,9 +616,11 @@ export async function handleDocOrderRequest({
         } finally {
           if (workerConnection) {
             try {
-              await workerConnection.close(
-                dropOnClose ? { drop: true } : undefined,
-              );
+              if (dropOnClose) {
+                await workerConnection.close({ drop: true });
+              } else {
+                await workerConnection.close();
+              }
             } catch (closeErr) {
               clientLogger.warn(
                 `Error closing Oracle connection for index=${index} Document ID =${masterRow.ORDER_LINE}: ${closeErr.message}`,

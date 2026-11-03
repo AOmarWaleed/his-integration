@@ -489,9 +489,11 @@ export const withOracleConnection =
       } finally {
         if (connection) {
           try {
-            await connection.close(
-              dropConnectionOnClose ? { drop: true } : undefined,
-            );
+            if (dropConnectionOnClose) {
+              await connection.close({ drop: true });
+            } else {
+              await connection.close();
+            }
             oracleLogger.debug(
               `[cron] Connection released back to pool for facility ${facilityId}`,
             );
