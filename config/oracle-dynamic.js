@@ -79,20 +79,43 @@ export function getPoolKey({
 }
 
 /**
- * Check if an error indicates a broken, expired, or disconnected pool/connection.
- * Used to trigger automatic pool recreation.
+ * Check if an error indicates a broken, expired, or disconnected Oracle connection or pool.
+ * Specifically ignores Axios and HTTP network errors so external API timeouts
+ * do NOT mistakenly trigger Oracle pool recreations.
  *
  * @param {Error|object} error
  * @returns {boolean}
  */
 export function isOracleConnectionOrPoolError(error) {
   if (!error) return false;
+
+  // Ignore Axios / HTTP errors (e.g. timeouts or connection drops to NPHIES server)
+  if (
+    error.isAxiosError ||
+    error.config ||
+    error.response ||
+    error.name === "AxiosError"
+  ) {
+    return false;
+  }
+
   const code = String(error.code || "");
   const msg = String(error.message || "");
 
+  const isOracleCode =
+    code.startsWith("ORA-") ||
+    code.startsWith("NJS-") ||
+    code.startsWith("DPI-") ||
+    code === "POOL_ACQUIRE_TIMEOUT";
+
+  const hasOraclePattern = /ORA-\d{5}|NJS-\d{3}|DPI-\d{4}/i.test(msg);
+
+  if (!isOracleCode && !hasOraclePattern && code !== "POOL_ACQUIRE_TIMEOUT") {
+    return false;
+  }
+
   const fatalPatterns = [
     /POOL_ACQUIRE_TIMEOUT/i,
-    /VALIDATION_TIMEOUT/i,
     /NJS-040/i, // connection request timeout (queueTimeout)
     /NJS-003/i, // invalid connection
     /NJS-064/i, // connection pool is closing
@@ -112,9 +135,6 @@ export function isOracleConnectionOrPoolError(error) {
     /ORA-12170/i, // TNS:connect timeout occurred
     /DPI-1010/i, // not connected
     /DPI-1080/i, // connection was closed by ORA-3113 / ORA-3135
-    /ECONNRESET/i,
-    /ETIMEDOUT/i,
-    /EPIPE/i,
   ];
 
   return fatalPatterns.some((re) => re.test(code) || re.test(msg));
@@ -196,8 +216,11 @@ export async function initOraclePool({
 }
 
 /**
- * Recreate the Oracle pool for a facility upon timeout or expired connection.
+ * Safely recreate the Oracle pool for a facility upon timeout or expired connection.
  * Concurrent requests await the same recreation promise.
+ *
+ * NOTE: The old pool is NOT force-closed immediately, so active in-flight queries
+ * on other concurrent jobs for this facility can complete cleanly without NJS-003 errors.
  *
  * @param {object} [settings]
  * @param {string} [reason="unknown"]
@@ -216,16 +239,38 @@ export async function recreateOraclePool(settings = {}, reason = "unknown") {
     delete pendingPoolInitializations[poolKey];
 
     if (oldPool) {
-      try {
-        oracleLogger.warn(
-          `Closing old Oracle pool for ${poolKey} due to: ${reason}`,
-        );
-        await oldPool.close(5);
-      } catch (closeErr) {
-        oracleLogger.warn(
-          `Error closing old Oracle pool ${poolKey}: ${closeErr.message}`,
-        );
-      }
+      oracleLogger.warn(
+        `Retiring old Oracle pool for ${poolKey} (reason: ${reason}). Existing in-flight connections will complete safely.`,
+      );
+
+      // Drain safely in background: wait until checked-out connections are returned
+      // before closing, rather than force-killing active jobs.
+      const closeWhenIdle = (poolToClose) => {
+        const timer = setInterval(async () => {
+          try {
+            const inUse = poolToClose.connectionsInUse || 0;
+            if (inUse === 0) {
+              clearInterval(timer);
+              await poolToClose.close(10);
+              oracleLogger.debug(`Retired Oracle pool drained and closed for ${poolKey}`);
+            }
+          } catch (_) {
+            clearInterval(timer);
+          }
+        }, 2000);
+        if (typeof timer.unref === "function") timer.unref();
+
+        // Fallback: close after 5 minutes if a connection leaked
+        const hardTimeout = setTimeout(async () => {
+          clearInterval(timer);
+          try {
+            await poolToClose.close(10);
+          } catch (_) {}
+        }, 5 * 60 * 1000);
+        if (typeof hardTimeout.unref === "function") hardTimeout.unref();
+      };
+
+      closeWhenIdle(oldPool);
     }
 
     oracleLogger.info(`Recreating fresh Oracle pool for ${poolKey}...`);
@@ -315,7 +360,7 @@ export async function getOracleConnection(
         `Oracle connection attempt ${attempt + 1}/${maxRetries + 1} failed for ${poolKey} (${error.message}). Recreating pool and retrying in ${backoffMs}ms...`,
       );
 
-      // Recreate pool on timeout or broken pool
+      // Recreate pool on acquire timeout or broken pool
       try {
         await recreateOraclePool(settings, error.code || "ACQUIRE_TIMEOUT");
       } catch (recErr) {
@@ -356,7 +401,7 @@ export function getFacilityPoolSettings(facility, abortSignal = null) {
  * 1. Fetches facility settings from PostgreSQL.
  * 2. Uses the shared pool for this facility (creates lazily once, reuses forever).
  * 3. Acquires a connection and executes the job.
- * 4. Automatically recreates pool and retries once if connection is lost.
+ * 4. Automatically retries once if connection is lost.
  * 5. Guarantees connection is returned to pool in finally.
  *
  * @param {(args: { connection: any, facility: any, abortSignal: AbortSignal, params: object }) => Promise<any>} fn
@@ -428,9 +473,9 @@ export const withOracleConnection =
         }
 
         oracleLogger.warn(
-          `[cron] Job for facility ${facilityId} failed due to Oracle connection error ` +
+          `[cron] Job for facility ${facilityId} encountered an Oracle connection error ` +
             `(attempt ${jobAttempt + 1}/${maxJobRetries + 1}): ${jobError.message}. ` +
-            `Recreating pool and retrying in 2000ms...`,
+            `Retrying with fresh connection in 2000ms...`,
         );
 
         if (connection) {
@@ -438,17 +483,6 @@ export const withOracleConnection =
             await connection.close({ drop: true });
           } catch (_) {}
           connection = null;
-        }
-
-        try {
-          await recreateOraclePool(
-            poolSettings,
-            jobError.code || "JOB_CONNECTION_ERROR",
-          );
-        } catch (recErr) {
-          oracleLogger.error(
-            `Error recreating pool after job failure: ${recErr.message}`,
-          );
         }
 
         await new Promise((r) => setTimeout(r, 2000));
