@@ -3,6 +3,7 @@ if (!process.env.UV_THREADPOOL_SIZE) {
   process.env.UV_THREADPOOL_SIZE = "64";
 }
 
+import net from "net";
 import oracle from "oracledb";
 import { config } from "./index.js";
 import { oracleLogger } from "./logger.js";
@@ -292,6 +293,183 @@ export async function recreateOraclePool(settings = {}, reason = "unknown") {
  * @param {object} [retryOptions]
  * @returns {Promise<oracle.Connection>}
  */
+
+/**
+ * Rapid TCP connection probe to test reachability of host:port.
+ *
+ * @param {string} host
+ * @param {number} port
+ * @param {number} [timeoutMs=2500]
+ * @returns {Promise<{ reachable: boolean, error?: string, elapsedMs: number }>}
+ */
+export function probeTcpPort(host, port, timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    if (!host || !port) {
+      return resolve({
+        reachable: false,
+        error: "Missing host or port",
+        elapsedMs: 0,
+      });
+    }
+
+    const start = Date.now();
+    const socket = new net.Socket();
+    let finished = false;
+
+    const done = (reachable, error) => {
+      if (finished) return;
+      finished = true;
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve({
+        reachable,
+        error,
+        elapsedMs: Date.now() - start,
+      });
+    };
+
+    socket.setTimeout(timeoutMs);
+
+    socket.once("connect", () => done(true));
+    socket.once("timeout", () =>
+      done(false, `ETIMEDOUT: Host or firewall unreachable after ${timeoutMs}ms`),
+    );
+    socket.once("error", (err) =>
+      done(false, `${err.code || err.message}`),
+    );
+
+    try {
+      socket.connect(Number(port), host);
+    } catch (err) {
+      done(false, err.message);
+    }
+  });
+}
+
+/**
+ * Extract host, port, dbName, user, and connectString from pool settings.
+ *
+ * @param {object} settings
+ * @returns {{ host: string|null, port: number, dbName: string|null, user: string, connectString: string }}
+ */
+export function parseConnectDetails(settings = {}) {
+  let host = settings.host || null;
+  let port = settings.port || null;
+  let dbName = settings.dbName || null;
+  const user = settings.userParam || conf.user || "N/A";
+  const connectString = settings.connectStringParam || conf.connectString || "";
+
+  if ((!host || !port) && connectString) {
+    const m = String(connectString).match(/^([^:/]+)(?::(\d+))?(?:[/:](.+))?$/);
+    if (m) {
+      if (!host) host = m[1];
+      if (!port) port = Number(m[2]) || 1521;
+      if (!dbName) dbName = m[3] || null;
+    }
+  }
+
+  port = Number(port) || 1521;
+  return { host, port, dbName, user, connectString };
+}
+
+/**
+ * Build rich diagnostics when connection acquisition fails or times out.
+ *
+ * @param {object} params
+ * @returns {{ logMessage: string, shortMessage: string, diagnosis: string, tcpProbe: object|null }}
+ */
+export function formatConnectionDiagnostic({
+  poolKey,
+  facilityId,
+  facilityName,
+  host,
+  port,
+  dbName,
+  user,
+  connectString,
+  tcpProbe,
+  poolStats,
+  reason,
+}) {
+  const targetDesc = host ? `${host}:${port}/${dbName || ""}` : connectString || "unknown";
+  const facDesc = facilityId ? `${facilityId}${facilityName ? ` (${facilityName})` : ""}` : poolKey;
+
+  let probableCause = "";
+  let troubleshooting = [];
+
+  if (tcpProbe && !tcpProbe.reachable) {
+    if (String(tcpProbe.error).includes("ECONNREFUSED")) {
+      probableCause = `Server ${host} is ONLINE, but port ${port} is CLOSED or Oracle Listener is NOT running.`;
+      troubleshooting = [
+        `1. Check if Oracle Listener is running on ${host} ('lsnrctl status').`,
+        `2. Verify that Oracle Listener port matches ${port}.`,
+      ];
+    } else {
+      probableCause = `Cannot reach database host ${host}:${port} over network (${tcpProbe.error}).`;
+      troubleshooting = [
+        `1. Check if the database server at ${host} is powered ON.`,
+        `2. Verify if the VPN tunnel or network route to ${host} is ACTIVE.`,
+        `3. Ensure firewall allows TCP traffic on port ${port} between this server and ${host}.`,
+      ];
+    }
+  } else if (poolStats && poolStats.connectionsInUse >= poolStats.poolMax && poolStats.poolMax > 0) {
+    probableCause = `Pool is EXHAUSTED: all ${poolStats.connectionsInUse}/${poolStats.poolMax} connections are currently in use.`;
+    troubleshooting = [
+      `1. Long-running queries or transactions may be holding connections open.`,
+      `2. Consider increasing poolMax if this facility handles high concurrent traffic.`,
+    ];
+  } else if (poolStats && poolStats.connectionsOpen === 0) {
+    probableCause = `TCP port ${port} is open, but Oracle Database did not complete connection handshake within timeout.`;
+    troubleshooting = [
+      `1. Check if Oracle service name "${dbName}" is registered on listener ('lsnrctl services').`,
+      `2. Check database instance state (OPEN vs MOUNT vs RESTRICTED).`,
+      `3. Check Oracle Alert Log for ORA- errors or PROCESSES/SESSIONS limit reached.`,
+      `4. Verify credentials for database user "${user}".`,
+    ];
+  } else {
+    probableCause = reason || `Connection acquire timed out.`;
+    troubleshooting = [
+      `1. Verify network latency and stability to ${host}.`,
+      `2. Check database server CPU/memory load and active sessions.`,
+    ];
+  }
+
+  const tcpDesc = tcpProbe
+    ? tcpProbe.reachable
+      ? `REACHABLE (${tcpProbe.elapsedMs}ms)`
+      : `UNREACHABLE (${tcpProbe.error})`
+    : "NOT_PROBED";
+
+  const statsDesc = poolStats
+    ? `open=${poolStats.connectionsOpen ?? 0}, inUse=${poolStats.connectionsInUse ?? 0}, max=${poolStats.poolMax ?? 0}`
+    : "N/A";
+
+  const logLines = [
+    `================== ORACLE CONNECTION DIAGNOSTICS ==================`,
+    `Facility:         ${facDesc}`,
+    `Target DB:        ${targetDesc}`,
+    `DB User:          ${user}`,
+    `TCP Port Status:  ${tcpDesc}`,
+    `Pool Stats:       ${statsDesc}`,
+    `Probable Cause:   ${probableCause}`,
+    `Troubleshooting:`,
+    ...troubleshooting.map((t) => `  ${t}`),
+    `===================================================================`,
+  ];
+
+  const shortMessage =
+    tcpProbe && !tcpProbe.reachable
+      ? `Cannot reach Oracle DB at ${targetDesc} (TCP ${tcpProbe.error})`
+      : `Pool getConnection timeout after 45000ms for ${poolKey} [Target: ${targetDesc}, Stats: ${statsDesc}]`;
+
+  return {
+    logMessage: logLines.join("\n"),
+    shortMessage,
+    diagnosis: probableCause,
+    tcpProbe,
+  };
+}
+
 export async function getOracleConnection(
   settings = {},
   acquireTimeout = 45000,
@@ -300,6 +478,7 @@ export async function getOracleConnection(
   const maxRetries = retryOptions.maxRetries ?? 2;
   const abortSignal = retryOptions.abortSignal ?? settings.abortSignal ?? null;
   const poolKey = getPoolKey(settings);
+  const connectDetails = parseConnectDetails(settings);
 
   let lastError = null;
 
@@ -317,6 +496,33 @@ export async function getOracleConnection(
       let pool = pools[poolKey];
       if (!pool) {
         pool = await initOraclePool(settings);
+      }
+
+      // Fast-fail check: If pool has 0 open connections and we have a host,
+      // probe TCP reachability first (2.5s) to avoid 45s freeze on offline host/VPN.
+      if (pool.connectionsOpen === 0 && connectDetails.host) {
+        const initialTcp = await probeTcpPort(connectDetails.host, connectDetails.port, 2500);
+        if (!initialTcp.reachable) {
+          const diag = formatConnectionDiagnostic({
+            poolKey,
+            facilityId: settings.facilityId,
+            facilityName: settings.facilityName,
+            ...connectDetails,
+            tcpProbe: initialTcp,
+            poolStats: {
+              connectionsOpen: pool.connectionsOpen,
+              connectionsInUse: pool.connectionsInUse,
+              poolMax: pool.poolMax,
+            },
+            reason: `TCP connection failed to ${connectDetails.host}:${connectDetails.port} (${initialTcp.error})`,
+          });
+
+          oracleLogger.error(`${diag.logMessage}`);
+          const tcpErr = new Error(diag.shortMessage);
+          tcpErr.code = "POOL_ACQUIRE_TIMEOUT";
+          tcpErr.diagnostics = diag;
+          throw tcpErr;
+        }
       }
 
       // 2. Acquire connection with timeout
@@ -346,18 +552,44 @@ export async function getOracleConnection(
         throw error;
       }
 
+      // Run diagnostics on failure if not already diagnosed
+      let diag = error.diagnostics;
+      if (!diag) {
+        const pool = pools[poolKey];
+        const tcpProbe = connectDetails.host
+          ? await probeTcpPort(connectDetails.host, connectDetails.port, 2500)
+          : null;
+        diag = formatConnectionDiagnostic({
+          poolKey,
+          facilityId: settings.facilityId,
+          facilityName: settings.facilityName,
+          ...connectDetails,
+          tcpProbe,
+          poolStats: pool
+            ? {
+                connectionsOpen: pool.connectionsOpen,
+                connectionsInUse: pool.connectionsInUse,
+                poolMax: pool.poolMax,
+              }
+            : null,
+          reason: error.message,
+        });
+        error.diagnostics = diag;
+        error.message = diag.shortMessage;
+      }
+
       const isConnOrPoolErr = isOracleConnectionOrPoolError(error);
 
       if (attempt >= maxRetries || !isConnOrPoolErr) {
         oracleLogger.error(
-          `Failed to get Oracle connection for ${poolKey} (attempt ${attempt + 1}/${maxRetries + 1}): ${error.message}`,
+          `Failed to get Oracle connection for ${poolKey} (attempt ${attempt + 1}/${maxRetries + 1}):\n${diag.logMessage}`,
         );
         throw error;
       }
 
       const backoffMs = (attempt + 1) * 1500;
       oracleLogger.warn(
-        `Oracle connection attempt ${attempt + 1}/${maxRetries + 1} failed for ${poolKey} (${error.message}). Recreating pool and retrying in ${backoffMs}ms...`,
+        `Oracle connection attempt ${attempt + 1}/${maxRetries + 1} failed for ${poolKey} (${error.message}). Recreating pool and retrying in ${backoffMs}ms...\n${diag.logMessage}`,
       );
 
       // Recreate pool on acquire timeout or broken pool
@@ -388,10 +620,14 @@ export function getFacilityPoolSettings(facility, abortSignal = null) {
 
   return {
     facilityId,
+    facilityName: facility?.name || `Facility ${facilityId}`,
     poolScope: "job",
     userParam: facility?.his_db_username,
     passwordParam: facility?.his_db_password,
     connectStringParam: `${facility?.his_db_host}:${facility?.his_db_port}/${facility?.his_db_name}`,
+    host: facility?.his_db_host,
+    port: facility?.his_db_port || 1521,
+    dbName: facility?.his_db_name,
     abortSignal,
   };
 }
