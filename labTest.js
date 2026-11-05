@@ -158,13 +158,12 @@ export async function queryPatientChecklist({
           v_item VARCHAR2(32767);
           v_clean_data VARCHAR2(32767);
         BEGIN
-          v_clean_data := REPLACE(
-                            REPLACE(
-                              REPLACE(
-                                REPLACE(NVL(v_query_tab(v_idx).FORMATTED_DATA, ''), '\\', '\\\\'),
-                              '"', '\\"'),
-                            CHR(10), '\\n'),
-                          CHR(13), '');
+          v_clean_data := REPLACE(NVL(v_query_tab(v_idx).FORMATTED_DATA, ''), '\', '\\');
+          v_clean_data := REPLACE(v_clean_data, '"', '\"');
+          v_clean_data := REPLACE(v_clean_data, CHR(13), '');
+          v_clean_data := REPLACE(v_clean_data, CHR(10), '\n');
+          v_clean_data := REPLACE(v_clean_data, CHR(9), '\t');
+          v_clean_data := REGEXP_REPLACE(v_clean_data, '[[:cntrl:]]', ' ');
 
           v_item := '{"RECORD_TYPE":"' || NVL(v_query_tab(v_idx).RECORD_TYPE, '') || '"'
                  || ',"REPLY_TYPE":"' || NVL(v_query_tab(v_idx).REPLY_TYPE, '') || '"'
@@ -209,7 +208,15 @@ export async function queryPatientChecklist({
       : out.p_rows_json;
   }
 
-  const rows = JSON.parse(jsonString || "[]");
+  // Defensive sanitation of control characters (ASCII 0-31 except valid JSON escapes)
+  const sanitizedJson = (jsonString || "[]").replace(/[\u0000-\u001F\u007F-\u009F]/g, (char) => {
+    if (char === "\n") return "\\n";
+    if (char === "\r") return "\\r";
+    if (char === "\t") return "\\t";
+    return " ";
+  });
+
+  const rows = JSON.parse(sanitizedJson);
 
   return {
     updateAllowed: out.p_update_allowed ?? null,
@@ -297,10 +304,27 @@ export async function queryPatientChecklist({
         });
         console.log(`Direct QUERY_PATIENT_CHECKLIST: rows=${directDetails.rows.length}`);
         if (directDetails.rows.length > 0) {
-          console.log(`Sample rows:`);
-          directDetails.rows.slice(0, 5).forEach((r, i) => {
-            console.log(` [${i + 1}] [${r.RECORD_TYPE}] ${r.FORMATTED_DATA}`);
-          });
+          // List all Headings (H) to see the form structure
+          const headings = directDetails.rows
+            .filter((r) => r.RECORD_TYPE === "H")
+            .map((r) => r.FORMATTED_DATA.trim());
+          console.log(`  Found ${headings.length} Form Headings:`, headings.slice(0, 10).join(" | "));
+
+          // Search for any maternal / delivery keywords
+          const maternalRows = directDetails.rows.filter((r) =>
+            /deliver|labor|birth|gestat|apgar|gravid|para|preg|newborn|infant/i.test(r.FORMATTED_DATA)
+          );
+          if (maternalRows.length > 0) {
+            console.log(`  Found ${maternalRows.length} Maternal/Delivery related rows:`);
+            maternalRows.slice(0, 15).forEach((r) => {
+              console.log(`    [${r.RECORD_TYPE}] reply=${r.REPLY_TYPE || "-"} | ${r.FORMATTED_DATA}`);
+            });
+          } else {
+            console.log(`  No specific maternal keywords in rows. Sample rows:`);
+            directDetails.rows.slice(0, 5).forEach((r, i) => {
+              console.log(`    [${i + 1}] [${r.RECORD_TYPE}] ${r.FORMATTED_DATA}`);
+            });
+          }
         }
       } catch (err) {
         console.log(`Direct QUERY error: ${err.message}`);
