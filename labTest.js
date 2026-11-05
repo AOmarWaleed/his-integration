@@ -35,8 +35,8 @@ export async function queryPatientChecklist({
   checklistId = null,
   answerSessionId = null,
   recordedAt = null,
-  allEpisodes = "A",
-  orderBy = "C",
+  allEpisodes = null,
+  orderBy = null,
 } = {}) {
   // Uses ASCII CHR(30) (Record Separator) and CHR(31) (Unit Separator)
   // to stream all checklist rows without JSON escaping or 32KB buffer limits.
@@ -110,19 +110,59 @@ export async function queryPatientChecklist({
   `;
 
   const binds = {
-    p_update_allowed:   { dir: OracleDB.BIND_OUT, type: OracleDB.STRING, maxSize: 32767 },
-    p_complete_allowed: { dir: OracleDB.BIND_OUT, type: OracleDB.STRING, maxSize: 32767 },
-    p_rows_clob:        { dir: OracleDB.BIND_OUT, type: OracleDB.CLOB },
+    p_update_allowed: {
+      dir: OracleDB.BIND_OUT,
+      type: OracleDB.STRING,
+      maxSize: 32767,
+    },
+    p_complete_allowed: {
+      dir: OracleDB.BIND_OUT,
+      type: OracleDB.STRING,
+      maxSize: 32767,
+    },
+    p_rows_clob: { dir: OracleDB.BIND_OUT, type: OracleDB.CLOB },
 
-    p_patient_id:                { dir: OracleDB.BIND_IN, val: patientId, type: OracleDB.NUMBER },
-    p_episode_no:                { dir: OracleDB.BIND_IN, val: episodeNo, type: OracleDB.NUMBER },
-    p_answer_session_id:         { dir: OracleDB.BIND_IN, val: answerSessionId, type: OracleDB.NUMBER },
-    p_checklist_group_id:        { dir: OracleDB.BIND_IN, val: checklistGroupId, type: OracleDB.NUMBER },
-    p_checklist_id:              { dir: OracleDB.BIND_IN, val: checklistId, type: OracleDB.NUMBER },
-    p_chk_lst_answers_master_id: { dir: OracleDB.BIND_IN, val: answersMasterId, type: OracleDB.NUMBER },
-    p_recorded_at:               { dir: OracleDB.BIND_IN, val: recordedAt, type: OracleDB.DATE },
-    p_all_episodes:              { dir: OracleDB.BIND_IN, val: allEpisodes, type: OracleDB.STRING },
-    p_order_by:                  { dir: OracleDB.BIND_IN, val: orderBy, type: OracleDB.STRING },
+    p_patient_id: {
+      dir: OracleDB.BIND_IN,
+      val: patientId,
+      type: OracleDB.NUMBER,
+    },
+    p_episode_no: {
+      dir: OracleDB.BIND_IN,
+      val: episodeNo,
+      type: OracleDB.NUMBER,
+    },
+    p_answer_session_id: {
+      dir: OracleDB.BIND_IN,
+      val: answerSessionId,
+      type: OracleDB.NUMBER,
+    },
+    p_checklist_group_id: {
+      dir: OracleDB.BIND_IN,
+      val: checklistGroupId,
+      type: OracleDB.NUMBER,
+    },
+    p_checklist_id: {
+      dir: OracleDB.BIND_IN,
+      val: checklistId,
+      type: OracleDB.NUMBER,
+    },
+    p_chk_lst_answers_master_id: {
+      dir: OracleDB.BIND_IN,
+      val: answersMasterId,
+      type: OracleDB.NUMBER,
+    },
+    p_recorded_at: {
+      dir: OracleDB.BIND_IN,
+      val: recordedAt,
+      type: OracleDB.DATE,
+    },
+    p_all_episodes: {
+      dir: OracleDB.BIND_IN,
+      val: allEpisodes,
+      type: OracleDB.STRING,
+    },
+    p_order_by: { dir: OracleDB.BIND_IN, val: orderBy, type: OracleDB.STRING },
   };
 
   const result = await connection.execute(plsql, binds, { autoCommit: false });
@@ -186,24 +226,40 @@ export function extractMaternalSections(rows = []) {
   }
 
   // 1. Gestational Age (e.g., 38, 39 weeks)
-  let gestAge = "39";
+  let gestAge = "";
   const gestAgeAns = findAnswerForQuestion(/gestat/i);
+  console.log("gestAgeAns=>", gestAgeAns);
+
   if (gestAgeAns && /\d+/.test(gestAgeAns)) {
-    gestAge = gestAgeAns.match(/\d+/)[0];
+    // If range like 1-10 WEEKS, pick the upper bound or number
+    const nums = gestAgeAns.match(/\d+/g);
+    gestAge = nums.length > 1 ? nums[nums.length - 1] : nums[0];
   } else {
     const rawGest = findRowText(/(\d+)\s*(weeks|wks|weks)/i);
+    console.log("rawGest=>", rawGest);
+
     if (rawGest) {
       const m = rawGest.match(/(\d+)\s*(weeks|wks|weks)/i);
       if (m) gestAge = m[1];
     }
   }
+  if (!gestAge) gestAge = "38";
+  console.log("gestAge=>", gestAge);
 
   // 2. Type of Delivery (Vaginal vs Cesarean)
-  let deliveryProc = "Vaginal - non-instrumental";
-  let deliveryCode = "1";
+  let deliveryProc = "";
+  let deliveryCode = "";
   const delivAns =
     findAnswerForQuestion(/type of delivery/i) ||
     findRowText(/normal vaginal delivery|c\.s|cesarean/i);
+
+  console.log(
+    "delivAns=>",
+    delivAns,
+    findAnswerForQuestion(/type of delivery/i),
+    "***",
+    findRowText(/normal vaginal delivery|c\.s|cesarean/i)
+  );
 
   if (delivAns && /c\.s|cesarean|caesarean/i.test(delivAns)) {
     deliveryProc = "Cesarean section";
@@ -211,26 +267,58 @@ export function extractMaternalSections(rows = []) {
   } else if (delivAns && /vaginal|normal/i.test(delivAns)) {
     deliveryProc = "Vaginal - non-instrumental";
     deliveryCode = "1";
+  } else {
+    deliveryProc = "Vaginal - non-instrumental";
+    deliveryCode = "1";
   }
 
-  // 3. Formatted timestamps
+  // 3. Formatted timestamps & Delivery Date extraction
+  let birthDateRaw =
+    findAnswerForQuestion(/date.*(birth|delivery)/i) ||
+    findRowText(/\b\d{2}-\d{2}-\d{4}\b/);
+
   const now = new Date();
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mi = String(now.getMinutes()).padStart(2, "0");
-  const ss = String(now.getSeconds()).padStart(2, "0");
+  let yyyy = String(now.getFullYear());
+  let mm = String(now.getMonth() + 1).padStart(2, "0");
+  let dd = String(now.getDate()).padStart(2, "0");
+  let hh = String(now.getHours()).padStart(2, "0");
+  let mi = String(now.getMinutes()).padStart(2, "0");
+  let ss = String(now.getSeconds()).padStart(2, "0");
+
+  if (birthDateRaw) {
+    const parts = birthDateRaw.match(/(\d{2})[-/](\d{2})[-/](\d{4})/);
+    if (parts) {
+      dd = parts[1];
+      mm = parts[2];
+      yyyy = parts[3];
+    }
+  }
 
   const formattedDateTime = `${yyyy}.${mm}.${dd} ${hh}:${mi}:${ss}`;
   const cdaEffectiveTime = `${yyyy}${mm}${dd}${hh}${mi}${ss}+0300`;
 
   // 4. Pregnancy History (Live births / Para)
-  let liveBirths = "1";
-  const paraMatch = findRowText(/P(\d+)|para\s*(\d+)/i);
-  if (paraMatch) {
-    const m = paraMatch.match(/P(\d+)|para\s*(\d+)/i);
-    if (m) liveBirths = m[1] || m[2] || "1";
+  let liveBirths = "";
+  const parityAns = findAnswerForQuestion(/parity/i);
+  if (parityAns && /\d+/.test(parityAns)) {
+    liveBirths = parityAns.match(/\d+/)[0];
+  } else {
+    const paraMatch = findRowText(/P(\d+)|para\s*(\d+)/i);
+    console.log("paraMatch=>", paraMatch);
+    if (paraMatch) {
+      const m = paraMatch.match(/P(\d+)|para\s*(\d+)/i);
+      if (m) liveBirths = m[1] || m[2] || "";
+    }
+  }
+  if (!liveBirths) liveBirths = "0";
+
+  // 5. Delivery Event Outcome Value (Count of live births from current delivery)
+  let deliveryOutcomeValue = "1";
+  const multiplePreg = findAnswerForQuestion(/multiple pregnancy/i);
+  if (multiplePreg && /twin/i.test(multiplePreg)) {
+    deliveryOutcomeValue = "2";
+  } else if (multiplePreg && /triplet/i.test(multiplePreg)) {
+    deliveryOutcomeValue = "3";
   }
 
   return {
@@ -265,7 +353,7 @@ export function extractMaternalSections(rows = []) {
         CODE: "11636-8",
         CODE_SYSTEM: "2.16.840.1.113883.6.1",
         CODE_SYSTEM_NAME: "LOINC",
-        VALUE: "1",
+        VALUE: deliveryOutcomeValue,
         VALUE_TYPE: "INT",
         DATE_TIME_OF_DELIVERY: formattedDateTime,
         EFFECTIVE_TIME: cdaEffectiveTime,
@@ -294,9 +382,6 @@ export function extractMaternalSections(rows = []) {
   try {
     const candidateCases = [
       { patientId: 8587, episodeNo: 2 },
-      { patientId: 4136, episodeNo: 3 },
-      { patientId: 5255, episodeNo: 1 },
-      { patientId: 4244, episodeNo: 2 },
     ];
 
     console.log(`\n======================================================`);
@@ -311,11 +396,10 @@ export function extractMaternalSections(rows = []) {
       const details = await queryPatientChecklist({
         patientId: c.patientId,
         episodeNo: c.episodeNo,
-        answersMasterId: null,
-        allEpisodes: "A",
       });
 
       console.log(`Total checklist rows fetched: ${details.rows.length}`);
+      console.log(JSON.stringify(details.rows));
 
       // Map rows to the 4 sections
       const mapped = extractMaternalSections(details.rows);
@@ -323,7 +407,6 @@ export function extractMaternalSections(rows = []) {
       console.log(`\n[Mapped Sections Output for Patient ${c.patientId}]:`);
       console.log(JSON.stringify(mapped, null, 2));
     }
-
   } catch (err) {
     console.error("\n=== ERROR ===");
     console.error("code    :", err.code);
