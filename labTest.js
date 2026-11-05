@@ -219,7 +219,7 @@ export async function queryPatientChecklist({
 }
 
 // ============================================================
-// Runner: Executes test against real maternal cases
+// Runner: Executes diagnostic and test against maternal cases
 // ============================================================
 (async () => {
   try {
@@ -229,115 +229,98 @@ export async function queryPatientChecklist({
       { patientId: 4244, episodeNo: 2 },
       { patientId: 3052, episodeNo: 3 },
       { patientId: 8587, episodeNo: 2 },
+      { patientId: 3713, episodeNo: 1 },
     ];
 
-    // Check external codes for Maternal Discharge Summary
+    // 1. Check schema columns of EXTERNAL_CODES and CHECK_LIST_ANSWERS_MASTER
     console.log(`\n======================================================`);
-    console.log(`Checking EXTERNAL_CODES for 'Maternal Discharge Summary'`);
+    console.log(`1. Inspecting Table Columns`);
     console.log(`======================================================`);
     try {
-      const extRes = await connection.execute(
-        `SELECT EXT_CODE, OASIS_CODE, CODE_SYSTEM, EXT_TYPE 
-         FROM EXTERNAL_CODES 
-         WHERE EXT_TYPE = 'Maternal Discharge Summary' AND SOURCE = 'NPHIES CLINICAL'`,
+      const extCols = await connection.execute(
+        `SELECT COLUMN_NAME FROM ALL_TAB_COLUMNS WHERE TABLE_NAME = 'EXTERNAL_CODES'`,
         [],
         { outFormat: OracleDB.OUT_FORMAT_OBJECT }
       );
-      console.log(`Found ${extRes.rows.length} section definitions in EXTERNAL_CODES:`);
-      extRes.rows.forEach(r => console.log(` - EXT_CODE: ${r.EXT_CODE} | OASIS_CODE: ${r.OASIS_CODE}`));
+      console.log(`EXTERNAL_CODES columns:`, extCols.rows.map(r => r.COLUMN_NAME).join(", "));
     } catch (e) {
-      console.warn("Could not query EXTERNAL_CODES:", e.message);
+      console.warn("Could not inspect EXTERNAL_CODES columns:", e.message);
     }
 
-    // Direct check in CHECK_LIST_ANSWERS_MASTER for candidate patients
-    console.log(`\n======================================================`);
-    console.log(`Checking CHECK_LIST_ANSWERS_MASTER for target patients...`);
-    console.log(`======================================================`);
-    const pids = candidateCases.map(c => c.patientId).join(",");
     try {
-      const directCheck = await connection.execute(
-        `SELECT CHECK_LIST_ANSWERS_MASTER_ID, PATIENT_ID, ENCOUNTER_ID, 
-                CHECK_LIST_ID, CHECK_LIST_GROUP_ID, RECORDED_AT, STATUS 
-         FROM CHECK_LIST_ANSWERS_MASTER 
-         WHERE PATIENT_ID IN (${pids})`,
+      const chkCols = await connection.execute(
+        `SELECT COLUMN_NAME FROM ALL_TAB_COLUMNS WHERE TABLE_NAME = 'CHECK_LIST_ANSWERS_MASTER'`,
         [],
         { outFormat: OracleDB.OUT_FORMAT_OBJECT }
       );
-      console.log(`Direct table query for [${pids}] found ${directCheck.rows.length} records in CHECK_LIST_ANSWERS_MASTER.`);
-      directCheck.rows.forEach(r => {
-        console.log(` -> MasterID: ${r.CHECK_LIST_ANSWERS_MASTER_ID} | Patient: ${r.PATIENT_ID} | Encounter: ${r.ENCOUNTER_ID} | ChecklistID: ${r.CHECK_LIST_ID} | Status: ${r.STATUS} | Date: ${r.RECORDED_AT}`);
-      });
+      console.log(`CHECK_LIST_ANSWERS_MASTER columns:`, chkCols.rows.map(r => r.COLUMN_NAME).join(", "));
     } catch (e) {
-      console.warn("Could not query CHECK_LIST_ANSWERS_MASTER directly:", e.message);
+      console.warn("Could not inspect CHECK_LIST_ANSWERS_MASTER columns:", e.message);
     }
 
-    let foundAnswersMasterId = null;
-    let foundPatientId = null;
-    let foundEpisodeNo = null;
+    // 2. Inspect PACKAGE BODY of CHECK_LIST for GET_PATIENT_CHECKLISTS definition
+    console.log(`\n======================================================`);
+    console.log(`2. Inspecting CHECK_LIST.GET_PATIENT_CHECKLISTS Source`);
+    console.log(`======================================================`);
+    try {
+      const srcRes = await connection.execute(
+        `SELECT LINE, TEXT FROM ALL_SOURCE 
+         WHERE NAME = 'CHECK_LIST' AND TYPE = 'PACKAGE BODY' 
+           AND LINE BETWEEN 
+             (SELECT MIN(LINE) FROM ALL_SOURCE WHERE NAME = 'CHECK_LIST' AND TYPE = 'PACKAGE BODY' AND UPPER(TEXT) LIKE '%PROCEDURE GET_PATIENT_CHECKLISTS%')
+             AND 
+             (SELECT MIN(LINE) + 60 FROM ALL_SOURCE WHERE NAME = 'CHECK_LIST' AND TYPE = 'PACKAGE BODY' AND UPPER(TEXT) LIKE '%PROCEDURE GET_PATIENT_CHECKLISTS%')
+         ORDER BY LINE`,
+        [],
+        { outFormat: OracleDB.OUT_FORMAT_OBJECT }
+      );
+      console.log(`Source lines found: ${srcRes.rows.length}`);
+      srcRes.rows.forEach(r => process.stdout.write(r.TEXT));
+    } catch (e) {
+      console.warn("Could not read ALL_SOURCE for CHECK_LIST:", e.message);
+    }
 
+    // 3. Test QUERY_PATIENT_CHECKLIST directly with allEpisodes='A'
+    console.log(`\n======================================================`);
+    console.log(`3. Testing QUERY_PATIENT_CHECKLIST directly per patient`);
+    console.log(`======================================================`);
     for (const c of candidateCases) {
-      console.log(`\n======================================================`);
-      console.log(`Testing Case: Patient=${c.patientId}, Episode=${c.episodeNo}`);
-      console.log(`======================================================`);
+      console.log(`\n--- Patient ${c.patientId} (Episode ${c.episodeNo}) ---`);
+      
+      // Try direct QUERY_PATIENT_CHECKLIST with null masterId
+      try {
+        const directDetails = await queryPatientChecklist({
+          patientId: c.patientId,
+          episodeNo: c.episodeNo,
+          answersMasterId: null,
+          allEpisodes: "A",
+        });
+        console.log(`Direct QUERY_PATIENT_CHECKLIST: rows=${directDetails.rows.length}`);
+        if (directDetails.rows.length > 0) {
+          console.log(`Sample rows:`);
+          directDetails.rows.slice(0, 5).forEach((r, i) => {
+            console.log(` [${i + 1}] [${r.RECORD_TYPE}] ${r.FORMATTED_DATA}`);
+          });
+        }
+      } catch (err) {
+        console.log(`Direct QUERY error: ${err.message}`);
+      }
 
-      // 1. Try with exact episode
-      let checklists = await getPatientChecklists({
-        patientId: c.patientId,
-        episodeNo: c.episodeNo,
-      });
-
-      // 2. If 0 found, try without episode filter (across all encounters)
-      if (checklists.length === 0) {
-        console.log(`No checklist under episode ${c.episodeNo}. Trying without episode filter...`);
-        checklists = await getPatientChecklists({
+      // Try GET_PATIENT_CHECKLISTS with null filter & null status
+      try {
+        const listA = await getPatientChecklists({
           patientId: c.patientId,
           episodeNo: null,
-          status: "A",
+          filter: null,
+          status: null,
         });
+        console.log(`GET_PATIENT_CHECKLISTS (null filter/status, null ep): count=${listA.length}`);
+        listA.forEach(item => {
+          console.log(` -> MasterID=${item.answersMasterId} | Title=${item.checklistDesc} | Group=${item.groupDesc} | Ep=${item.episodeNo}`);
+        });
+      } catch (err) {
+        console.log(`GET_PATIENT_CHECKLISTS (null filter) error: ${err.message}`);
       }
-
-      console.log(`Found ${checklists.length} checklists for patient ${c.patientId}:`);
-      checklists.forEach((item, i) => {
-        console.log(
-          ` [${i + 1}] MasterID=${item.answersMasterId} | Ep=${item.episodeNo} | Enc=${item.encounterId} | Date=${item.recordedAt} | Status=${item.checklistStatus} | Title=${item.checklistDesc} | Group=${item.groupDesc}`
-        );
-      });
-
-      if (checklists.length > 0 && !foundAnswersMasterId) {
-        foundAnswersMasterId = checklists[0].answersMasterId;
-        foundPatientId = c.patientId;
-        foundEpisodeNo = c.episodeNo;
-      }
-    }
-
-    // Step 2: Query detailed questions and answers for the first checklist found
-    if (foundAnswersMasterId) {
-      console.log(`\n======================================================`);
-      console.log(`Fetching detailed answers for MasterID=${foundAnswersMasterId} (Patient=${foundPatientId}, Ep=${foundEpisodeNo})...`);
-      console.log(`======================================================`);
-
-      const details = await queryPatientChecklist({
-        patientId: foundPatientId,
-        episodeNo: foundEpisodeNo || 1,
-        answersMasterId: foundAnswersMasterId,
-      });
-
-      console.log(`updateAllowed   : ${details.updateAllowed}`);
-      console.log(`completeAllowed : ${details.completeAllowed}`);
-      console.log(`Total rows count: ${details.rows.length}`);
-      console.log(`------------------------------------------------------`);
-
-      details.rows.slice(0, 40).forEach((row, i) => {
-        console.log(
-          ` [${i + 1}] [${row.RECORD_TYPE}] reply=${row.REPLY_TYPE || "-"} | data=${row.FORMATTED_DATA}`
-        );
-      });
-
-      if (details.rows.length > 40) {
-        console.log(` ... and ${details.rows.length - 40} more rows.`);
-      }
-    } else {
-      console.log(`\nNo checklists found for the tested candidates.`);
     }
 
   } catch (err) {
