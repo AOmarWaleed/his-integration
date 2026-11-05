@@ -157,21 +157,150 @@ export async function queryPatientChecklist({
 }
 
 // ============================================================
-// Runner: Executes only QUERY_PATIENT_CHECKLIST on cases
+// Extractor & Mapper: Transforms checklist rows into the exact
+// shapes required by getDefaultValueForSection
+// ============================================================
+export function extractMaternalSections(rows = []) {
+  // Find answer row immediately following a matching question
+  function findAnswerForQuestion(questionRegex) {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.RECORD_TYPE === "Q" && questionRegex.test(row.FORMATTED_DATA)) {
+        for (let j = i + 1; j < Math.min(i + 5, rows.length); j++) {
+          if (rows[j].RECORD_TYPE === "A") {
+            return rows[j].FORMATTED_DATA.replace(/\+/g, " ").trim();
+          }
+          if (rows[j].RECORD_TYPE === "Q" || rows[j].RECORD_TYPE === "H") {
+            break;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  // Find any row matching regex
+  function findRowText(regex) {
+    const r = rows.find((x) => regex.test(x.FORMATTED_DATA));
+    return r ? r.FORMATTED_DATA.replace(/\+/g, " ").trim() : null;
+  }
+
+  // 1. Gestational Age (e.g., 38, 39 weeks)
+  let gestAge = "39";
+  const gestAgeAns = findAnswerForQuestion(/gestat/i);
+  if (gestAgeAns && /\d+/.test(gestAgeAns)) {
+    gestAge = gestAgeAns.match(/\d+/)[0];
+  } else {
+    const rawGest = findRowText(/(\d+)\s*(weeks|wks|weks)/i);
+    if (rawGest) {
+      const m = rawGest.match(/(\d+)\s*(weeks|wks|weks)/i);
+      if (m) gestAge = m[1];
+    }
+  }
+
+  // 2. Type of Delivery (Vaginal vs Cesarean)
+  let deliveryProc = "Vaginal - non-instrumental";
+  let deliveryCode = "1";
+  const delivAns =
+    findAnswerForQuestion(/type of delivery/i) ||
+    findRowText(/normal vaginal delivery|c\.s|cesarean/i);
+
+  if (delivAns && /c\.s|cesarean|caesarean/i.test(delivAns)) {
+    deliveryProc = "Cesarean section";
+    deliveryCode = "2";
+  } else if (delivAns && /vaginal|normal/i.test(delivAns)) {
+    deliveryProc = "Vaginal - non-instrumental";
+    deliveryCode = "1";
+  }
+
+  // 3. Formatted timestamps
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mi = String(now.getMinutes()).padStart(2, "0");
+  const ss = String(now.getSeconds()).padStart(2, "0");
+
+  const formattedDateTime = `${yyyy}.${mm}.${dd} ${hh}:${mi}:${ss}`;
+  const cdaEffectiveTime = `${yyyy}${mm}${dd}${hh}${mi}${ss}+0300`;
+
+  // 4. Pregnancy History (Live births / Para)
+  let liveBirths = "1";
+  const paraMatch = findRowText(/P(\d+)|para\s*(\d+)/i);
+  if (paraMatch) {
+    const m = paraMatch.match(/P(\d+)|para\s*(\d+)/i);
+    if (m) liveBirths = m[1] || m[2] || "1";
+  }
+
+  return {
+    pregnancyhistory: [
+      {
+        INDEX: 1,
+        TYPE: "BIRTHS LIVE (REPORTED)",
+        CODE: "11636-8",
+        CODE_SYSTEM: "2.16.840.1.113883.6.1",
+        CODE_SYSTEM_NAME: "LOINC",
+        VALUE: liveBirths,
+        VALUE_TYPE: "INT",
+        UNIT: "",
+        TIME_OF_MEASUREMENT: formattedDateTime,
+        EFFECTIVE_TIME: cdaEffectiveTime,
+      },
+    ],
+    laboranddeliveryevents: {
+      INDEX: 1,
+      PROCEDURE: deliveryProc,
+      PROCEDURE_CODE: deliveryCode,
+      PROCEDURE_CODE_SYSTEM: "2.16.840.1.113883.3.3731.1.203.22",
+      PROCEDURE_CODE_SYSTEM_NAME: "KSA Mode of Delivery",
+      DATE_TIME: `${formattedDateTime.replace(" ", ", ")}`,
+      EFFECTIVE_TIME: cdaEffectiveTime,
+      STATUS: "Completed",
+    },
+    deliveryeventoutcome: [
+      {
+        INDEX: 1,
+        PROCEDURE: "Live Births",
+        CODE: "11636-8",
+        CODE_SYSTEM: "2.16.840.1.113883.6.1",
+        CODE_SYSTEM_NAME: "LOINC",
+        VALUE: "1",
+        VALUE_TYPE: "INT",
+        DATE_TIME_OF_DELIVERY: formattedDateTime,
+        EFFECTIVE_TIME: cdaEffectiveTime,
+      },
+    ],
+    newbornstatusatmaternaldischarge: [
+      {
+        INDEX: 1,
+        STATUS_TYPE: "Gestational Age",
+        CODE: "49051-6",
+        CODE_SYSTEM: "2.16.840.1.113883.6.1",
+        CODE_SYSTEM_NAME: "LOINC",
+        VALUE: gestAge,
+        VALUE_TYPE: "PQ",
+        UNIT: "wk",
+        EFFECTIVE_TIME: cdaEffectiveTime,
+      },
+    ],
+  };
+}
+
+// ============================================================
+// Runner: Executes QUERY_PATIENT_CHECKLIST and maps to sections
 // ============================================================
 (async () => {
   try {
     const candidateCases = [
+      { patientId: 8587, episodeNo: 2 },
       { patientId: 4136, episodeNo: 3 },
       { patientId: 5255, episodeNo: 1 },
       { patientId: 4244, episodeNo: 2 },
-      { patientId: 3052, episodeNo: 3 },
-      { patientId: 8587, episodeNo: 2 },
-      { patientId: 3713, episodeNo: 1 },
     ];
 
     console.log(`\n======================================================`);
-    console.log(`Running QUERY_PATIENT_CHECKLIST for test cases`);
+    console.log(`MAPPING CHECKLIST DATA TO MATERNAL SECTIONS`);
     console.log(`======================================================`);
 
     for (const c of candidateCases) {
@@ -186,31 +315,13 @@ export async function queryPatientChecklist({
         allEpisodes: "A",
       });
 
-      console.log(`updateAllowed   : ${details.updateAllowed}`);
-      console.log(`completeAllowed : ${details.completeAllowed}`);
-      console.log(`Total rows count: ${details.rows.length}`);
+      console.log(`Total checklist rows fetched: ${details.rows.length}`);
 
-      if (details.rows.length > 0) {
-        // Collect form headings (H)
-        const headings = details.rows
-          .filter((r) => r.RECORD_TYPE === "H")
-          .map((r) => r.FORMATTED_DATA.trim());
+      // Map rows to the 4 sections
+      const mapped = extractMaternalSections(details.rows);
 
-        console.log(`Forms found (${headings.length}):`);
-        headings.slice(0, 10).forEach((h, i) => console.log(`  [${i + 1}] ${h}`));
-
-        // Collect maternal / delivery related questions and answers
-        const maternalRows = details.rows.filter((r) =>
-          /deliver|labor|birth|gestat|apgar|gravid|para|preg|newborn|infant/i.test(r.FORMATTED_DATA)
-        );
-
-        if (maternalRows.length > 0) {
-          console.log(`\nMaternal/Delivery rows found (${maternalRows.length}):`);
-          maternalRows.slice(0, 20).forEach((r) => {
-            console.log(`  [${r.RECORD_TYPE}] reply=${r.REPLY_TYPE || "-"} | ${r.FORMATTED_DATA}`);
-          });
-        }
-      }
+      console.log(`\n[Mapped Sections Output for Patient ${c.patientId}]:`);
+      console.log(JSON.stringify(mapped, null, 2));
     }
 
   } catch (err) {
