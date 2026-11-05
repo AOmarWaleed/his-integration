@@ -236,7 +236,7 @@ export async function queryPatientChecklist({
     console.log(`======================================================`);
     try {
       const extRes = await connection.execute(
-        `SELECT EXT_CODE, OASIS_CODE, CODE_SYSTEM, EXT_TYPE, IS_MANDATORY 
+        `SELECT * 
          FROM EXTERNAL_CODES 
          WHERE EXT_TYPE = 'Maternal Discharge Summary' AND SOURCE = 'NPHIES CLINICAL'`,
         [],
@@ -248,41 +248,110 @@ export async function queryPatientChecklist({
       console.warn("Could not query EXTERNAL_CODES:", e.message);
     }
 
-    for (const c of candidateCases) {
+    // Direct check in CHECK_LIST_ANSWERS_MASTER for candidate patients
+    console.log(`\n======================================================`);
+    console.log(`Inspecting CHECK_LIST_ANSWERS_MASTER for candidates...`);
+    console.log(`======================================================`);
+    const pids = candidateCases.map(c => c.patientId).join(",");
+    try {
+      const directCheck = await connection.execute(
+        `SELECT CHECK_LIST_ANSWERS_MASTER_ID, PATIENT_ID, ENCOUNTER_ID, 
+                CHECK_LIST_ID, CHECK_LIST_GROUP_ID, RECORDED_AT, STATUS 
+         FROM CHECK_LIST_ANSWERS_MASTER 
+         WHERE PATIENT_ID IN (${pids}) AND ROWNUM <= 10`,
+        [],
+        { outFormat: OracleDB.OUT_FORMAT_OBJECT }
+      );
+      console.log(`Direct table query for [${pids}] found ${directCheck.rows.length} rows.`);
+      directCheck.rows.forEach(r => {
+        console.log(` -> MasterID: ${r.CHECK_LIST_ANSWERS_MASTER_ID} | Patient: ${r.PATIENT_ID} | Encounter: ${r.ENCOUNTER_ID} | ChecklistID: ${r.CHECK_LIST_ID} | Status: ${r.STATUS}`);
+      });
+    } catch (e) {
+      console.warn("Could not query CHECK_LIST_ANSWERS_MASTER directly:", e.message);
+    }
+
+    // Find any maternal patients who actually have checklists recorded
+    console.log(`\n======================================================`);
+    console.log(`Finding maternal patients who have filled checklists...`);
+    console.log(`======================================================`);
+    let activeMaternalCases = [];
+    try {
+      const findMaternalWithChecklistsSql = `
+        SELECT DISTINCT cam.PATIENT_ID, cam.ENCOUNTER_ID, cam.CHECK_LIST_ANSWERS_MASTER_ID, cam.RECORDED_AT
+        FROM CHECK_LIST_ANSWERS_MASTER cam
+        JOIN patient_diagnosis_notes pdn ON pdn.patient_id = cam.PATIENT_ID
+        JOIN diagnosis_codes dc ON pdn.diag_code = dc.diag_code
+        WHERE dc.hosp_code IN ('O30', 'Z37.0', 'Z38.1', 'O82', 'O68.2')
+          AND ROWNUM <= 10
+      `;
+      const maternalChecklistsRes = await connection.execute(
+        findMaternalWithChecklistsSql,
+        [],
+        { outFormat: OracleDB.OUT_FORMAT_OBJECT }
+      );
+      console.log(`Found ${maternalChecklistsRes.rows.length} maternal records with checklists in DB:`);
+      maternalChecklistsRes.rows.forEach(r => {
+        console.log(` -> PatientID: ${r.PATIENT_ID} | Encounter: ${r.ENCOUNTER_ID} | MasterID: ${r.CHECK_LIST_ANSWERS_MASTER_ID} | Date: ${r.RECORDED_AT}`);
+        activeMaternalCases.push({
+          patientId: Number(r.PATIENT_ID),
+          episodeNo: r.ENCOUNTER_ID ? Number(r.ENCOUNTER_ID) : null,
+          answersMasterId: Number(r.CHECK_LIST_ANSWERS_MASTER_ID),
+        });
+      });
+    } catch (e) {
+      console.warn("Could not query maternal checklists:", e.message);
+    }
+
+    // Merge candidates with found active maternal cases
+    const casesToTest = activeMaternalCases.length > 0 ? activeMaternalCases : candidateCases;
+
+    for (const c of casesToTest) {
       console.log(`\n======================================================`);
-      console.log(`Testing Case: Patient=${c.patientId}, Episode=${c.episodeNo}, Doc=${c.docId}`);
+      console.log(`Testing Case: Patient=${c.patientId}, Episode=${c.episodeNo || "ALL"}`);
       console.log(`======================================================`);
 
-      const checklists = await getPatientChecklists({
+      // 1. Try with episodeNo first
+      let checklists = await getPatientChecklists({
         patientId: c.patientId,
         episodeNo: c.episodeNo,
       });
 
-      console.log(`Found ${checklists.length} checklists for patient ${c.patientId} (ep ${c.episodeNo}):`);
+      // 2. If 0 found, try without episode filter (all episodes for patient)
+      if (checklists.length === 0) {
+        console.log(`Trying without episode filter for patient ${c.patientId}...`);
+        checklists = await getPatientChecklists({
+          patientId: c.patientId,
+          episodeNo: null,
+          status: "A",
+        });
+      }
+
+      console.log(`Found ${checklists.length} checklists for patient ${c.patientId}:`);
       checklists.forEach((item, i) => {
         console.log(
           ` [${i + 1}] ID=${item.answersMasterId} | Date=${item.recordedAt} | Status=${item.checklistStatus} | Title=${item.checklistDesc} | Group=${item.groupDesc}`
         );
       });
 
-      if (checklists.length > 0) {
-        // Query the first checklist with answers
-        const targetMasterId = checklists[0].answersMasterId;
+      // Pick targetMasterId from returned checklists or from direct query
+      const targetMasterId = checklists.length > 0 ? checklists[0].answersMasterId : c.answersMasterId;
+
+      if (targetMasterId) {
         console.log(`\nQuerying details for answersMasterId=${targetMasterId}...`);
         const details = await queryPatientChecklist({
           patientId: c.patientId,
-          episodeNo: c.episodeNo,
+          episodeNo: c.episodeNo || 1,
           answersMasterId: targetMasterId,
         });
 
         console.log(`updateAllowed: ${details.updateAllowed}, completeAllowed: ${details.completeAllowed}, rows: ${details.rows.length}`);
         console.log(`Sample rows from checklist:`);
-        details.rows.slice(0, 25).forEach((row, i) => {
+        details.rows.slice(0, 30).forEach((row, i) => {
           console.log(
             ` [${i + 1}] type=${row.RECORD_TYPE} | reply=${row.REPLY_TYPE || "-"} | data=${row.FORMATTED_DATA}`
           );
         });
-        break; // Found and examined a case with checklists
+        break; // Successfully inspected checklist answers!
       }
     }
 
